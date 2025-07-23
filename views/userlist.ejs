@@ -1,0 +1,105 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title><%= title %></title>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0-alpha1/dist/css/bootstrap.min.css" rel="stylesheet" />
+  <link rel="stylesheet" href="/style.css" />
+  <style>
+    .btn-space {
+      margin-right: 5px;
+    }
+  </style>
+</head>
+<body>
+  <% if (showNavbar) { %>
+    <%- include('partials/navbar', { currentUser: currentUser, currentRole: currentRole }) %>
+  <% } %>
+
+  <div class="container mt-5">
+    <h2 class="mb-4 text-center"><%= title %></h2>
+
+    <div class="mb-3 text-center">
+  <a href="/admin/add/<%= role %>" class="btn btn-success">
+    เพิ่ม <%= role === 'admin' ? 'ผู้ดูแลระบบ' : (role === 'teacher' ? 'ครู' : 'นักเรียน') %>
+  </a>
+
+  <% if (role === 'admin' && currentUser && currentUser.is_master) { %>
+    <p class="text-danger mt-2"><strong>หมายเหตุ:</strong> คุณไม่สามารถลบบัญชี Master ของตนเองได้</p>
+  <% } %>
+</div>
+
+    <!-- เพิ่มแถบค้นหา -->
+    <div class="mb-3">
+      <input type="text" id="searchInput" class="form-control" placeholder="ค้นหารหัสประจำตัว เช่น 99999" onkeyup="filterTable()" />
+    </div>
+
+    <div class="table-responsive">
+      <table id="userTable" class="table table-bordered table-striped align-middle">
+        <thead class="table-light">
+          <tr>
+            <% if (role === 'admin') { %>
+              <th>รหัสประจำตัว</th>
+              <th>ชื่อ</th>
+            <% } else { %>
+              <th>รหัสประจำตัว</th>
+              <th>ชื่อ</th>
+              <th>นามสกุล</th>
+              <th>อีเมล</th>
+            <% } %>
+            <th>การจัดการ</th>
+          </tr>
+        </thead>
+        <tbody>
+          <% users.forEach(user => { %>
+            <tr>
+              <% if (role === 'admin') { %>
+                <td><%= user.adminid %></td>
+                <td><%= user.name %></td>
+              <% } else { %>
+                <td><%= role === 'teacher' ? user.teacherid : user.studentid %></td>
+                <td><%= user.firstname %></td>
+                <td><%= user.surname %></td>
+                <td><%= user.email %></td>
+              <% } %>
+              <td>
+                <a href="/admin/edit/<%= role %>/<%= role === 'admin' ? user.adminid : (role === 'teacher' ? user.teacherid : user.studentid) %>" class="btn btn-warning btn-sm btn-space">แก้ไข</a>
+                <form action="/admin/delete/<%= role %>/<%= role === 'admin' ? user.adminid : (role === 'teacher' ? user.teacherid : user.studentid) %>" method="POST" style="display:inline-block;" onsubmit="return confirm('คุณแน่ใจว่าต้องการลบหรือไม่?');">
+                  <button type="submit" class="btn btn-danger btn-sm btn-space">ลบ</button>
+                </form>
+              </td>
+            </tr>
+          <% }) %>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="mt-4 text-center">
+      <a href="/admin" class="btn btn-secondary">ย้อนกลับ</a>
+    </div>
+  </div>
+
+  <script>
+    function filterTable() {
+      const input = document.getElementById("searchInput");
+      const filter = input.value.toLowerCase();
+      const table = document.getElementById("userTable");
+      const trs = table.tBodies[0].getElementsByTagName("tr");
+
+      for (let i = 0; i < trs.length; i++) {
+        let td = trs[i].getElementsByTagName("td")[0]; // คอลัมน์รหัสประจำตัว (index 0)
+        if (td) {
+          const txtValue = td.textContent || td.innerText;
+          if (txtValue.toLowerCase().indexOf(filter) > -1) {
+            trs[i].style.display = "";
+          } else {
+            trs[i].style.display = "none";
+          }
+        }
+      }
+    }
+  </script>
+  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0-alpha1/dist/js/bootstrap.bundle.min.js"></script>
+</body>
+</html>

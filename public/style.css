@@ -1,0 +1,181 @@
+body {
+  font-family: Arial, sans-serif;
+  max-width: 100%;       /* กว้างเต็ม */
+  margin: 0;             /* ไม่มี margin */
+  padding: 0 15px;       /* padding ซ้ายขวา */
+  box-sizing: border-box;
+  min-height: 100vh;
+  padding-top: 56px; /* ปรับให้สูงพอสำหรับ navbar fixed-top (สูงประมาณ 56px) */
+}
+
+h2 {
+  text-align: center;
+  margin-bottom: 25px;
+}
+
+.form-row {
+  display: flex;
+  align-items: center;
+  margin-bottom: 15px;
+}
+
+label {
+  width: 130px;
+  text-align: right;
+  margin-right: 12px;
+  font-weight: 600;
+}
+
+input[type="text"],
+input[type="email"],
+input[type="password"] {
+  flex: 1;
+  padding: 8px 10px;
+  font-size: 1rem;
+  border: 1px solid #ccc;
+  border-radius: 4px;
+}
+
+input[readonly] {
+  background-color: #e0e0e0;
+  color: #555;
+  cursor: not-allowed;
+}
+
+small.note {
+  display: block;
+  margin: -10px 0 15px 142px;
+  color: red;
+  font-size: 0.9rem;
+  line-height: 1.3;
+}
+
+.btn-group {
+  display: flex;
+  justify-content: center;
+  gap: 10px; /* ระยะห่างระหว่างปุ่ม */
+  margin-top: 25px;
+}
+
+button {
+  background-color: #007bff;
+  color: white;
+  border: none;
+  padding: 10px 20px;
+  margin: 0 10px;
+  font-size: 1rem;
+  border-radius: 5px;
+  cursor: pointer;
+  transition: background-color 0.3s ease;
+}
+
+button:hover {
+  background-color: #0056b3;
+}
+.back-btn {
+  display: block;
+  width: fit-content;
+  margin: 20px auto 0;
+}
+a.back-btn {
+  text-decoration: none;
+}
+
+a.back-btn button {
+  background-color: #6c757d;
+}
+
+a.back-btn button:hover {
+  background-color: #5a6268;
+}
+
+.btn-logout {
+  background-color: #dc3545;
+  margin-top: 30px;
+  display: block;
+  width: 100%;
+  color: white;
+  font-weight: bold;
+  border: none;
+  padding: 10px 0;
+  cursor: pointer;
+  border-radius: 5px;
+  transition: background-color 0.3s ease;
+}
+
+.btn-logout:hover {
+  background-color: #b02a37;
+}
+
+/* Navbar styles */
+nav.navbar {
+  background-color: #343a40;
+  color: white;
+  padding: 10px 20px;
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 15px;
+  font-weight: 600;
+  font-size: 1rem;
+  border-radius: 0 0 8px 8px;
+  margin-bottom: 25px;
+
+  /* เพิ่มเต็มความกว้าง */
+  width: 100%;
+  box-sizing: border-box;
+}
+.navbar {
+  border-radius: 0 0 8px 8px; /* ปรับมุม navbar ให้มนด้านล่าง */
+  margin-bottom: 25px;
+}
+nav.navbar .username {
+  user-select: none;
+}
+
+nav.navbar form {
+  margin: 0;
+}
+
+nav.navbar button {
+  background-color: #dc3545;
+  border: none;
+  color: white;
+  padding: 6px 15px;
+  border-radius: 4px;
+  cursor: pointer;
+  font-weight: 600;
+  transition: background-color 0.3s ease;
+}
+
+nav.navbar button:hover {
+  background-color: #b02a37;
+}
+
+.btn-menu {
+  min-width: 200px;
+  margin: 10px;
+}
+.btn-danger.btn-sm {
+  font-weight: 600;
+  transition: background-color 0.3s ease;
+}
+
+.btn-danger.btn-sm:hover {
+  background-color: #b02a37;
+}
+.username {
+  color: white; /* สีข้อความชื่อผู้ใช้ */
+  font-weight: 600;
+  user-select: none;
+}
+
+.logout-btn {
+  background-color: #dc3545;
+  border: none;
+  color: white;
+}
+
+.logout-btn:hover {
+  background-color: #b02a37;
+}

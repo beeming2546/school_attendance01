@@ -1,0 +1,41 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+  <meta charset="UTF-8" />
+  <title>สแกน QR เพื่อเช็กชื่อ</title>
+  <script src="https://unpkg.com/html5-qrcode" type="text/javascript"></script>
+</head>
+<body>
+  <h3 class="text-center">กรุณาสแกน QR Code</h3>
+  <div id="reader" style="width: 300px; margin: auto;"></div>
+  <div id="result" style="text-align: center; margin-top: 10px;"></div>
+
+  <script>
+    function onScanSuccess(decodedText, decodedResult) {
+      // ส่ง token ไปเช็กชื่อ
+      fetch('/api/scan', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ token: decodedText })
+      })
+      .then(res => res.json())
+      .then(data => {
+        document.getElementById('result').innerText = data.message || data.error;
+      })
+      .catch(err => {
+        console.error(err);
+        document.getElementById('result').innerText = 'เกิดข้อผิดพลาดในการเช็กชื่อ';
+      });
+
+      // หยุดสแกนหลังจากเจอ
+      html5QrcodeScanner.clear();
+    }
+
+    const html5QrcodeScanner = new Html5QrcodeScanner(
+      "reader", { fps: 10, qrbox: 250 });
+    html5QrcodeScanner.render(onScanSuccess);
+  </script>
+</body>
+</html>

@@ -1,0 +1,63 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>รายงานรายชื่อผู้เรียนในชั้นเรียน</title>
+  <link rel="stylesheet" href="/style.css" />
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0-alpha1/dist/css/bootstrap.min.css" rel="stylesheet" />
+</head>
+<body>
+  <% if (showNavbar) { %>
+    <%- include('partials/navbar', { currentUser, currentRole }) %>
+  <% } %>
+
+  <div class="container mt-5">
+    <h2 class="text-center mb-4">รายงาน รายชื่อผู้เรียนในชั้นเรียน</h2>
+
+    <h4 class="text-center mb-4">ชื่อชั้นเรียน <%= classroom.classroomname %></h4>
+    <table class="table table-striped table-hover">
+  <thead class="table-secondary text-center">
+    <tr>
+      <th>รหัสประจำตัว</th>
+      <th>ชื่อ</th>
+      <th>นามสกุล</th>
+      <% if (currentRole === 'teacher') { %>
+        <th>ลบ</th>
+      <% } %>
+    </tr>
+  </thead>
+  <tbody>
+    <% if (students.length === 0) { %>
+      <tr><td colspan="4" class="text-center text-muted">ยังไม่มีนักเรียนในชั้นเรียนนี้</td></tr>
+    <% } else { %>
+      <% students.forEach(s => { %>
+        <tr class="text-center">
+          <td><%= s.studentid %></td>
+          <td><%= s.firstname %></td>
+          <td><%= s.surname %></td>
+          <% if (currentRole === 'teacher') { %>
+            <td>
+              <form action="/classroom/<%= classroom.classroomid %>/students/<%= s.studentid %>/remove" method="POST" onsubmit="return confirm('ยืนยันการลบนักเรียนคนนี้?');">
+                <button type="submit" class="btn btn-sm btn-danger">ลบ</button>
+                </form>
+            </td>
+          <% } %>
+        </tr>
+      <% }) %>
+    <% } %>
+  </tbody>
+</table>
+
+
+    <div class="mt-4 text-center">
+      <% if (currentRole === 'teacher') { %>
+        <a href="/classroom/add-students?classroomId=<%= classroom.classroomid %>" class="btn btn-success me-2">เพิ่มนักเรียน</a>
+      <% } %>
+      <a href="/classroom/view/<%= classroom.classroomid %>" class="btn btn-secondary">ย้อนกลับ</a>
+    </div>
+  </div>
+
+  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0-alpha1/dist/js/bootstrap.bundle.min.js"></script>
+</body>
+</html>

@@ -1,0 +1,129 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Classroom</title>
+  <link rel="stylesheet" href="/style.css" />
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0-alpha1/dist/css/bootstrap.min.css" rel="stylesheet" />
+</head>
+<body>
+  <% if (showNavbar) { %>
+    <%- include('partials/navbar', { currentUser: currentUser, currentRole: currentRole }) %>
+  <% } %>
+
+  <div class="container mt-4">
+    <h1 class="text-center mb-4">ยินดีต้อนรับสู่ Classroom</h1>
+
+    <% if (role === 'teacher') { %>
+      <div class="mb-4 text-center">
+        <a href="/classroom/add" class="btn btn-success">+ สร้างห้องเรียนใหม่</a>
+      </div>
+
+      <% if (classrooms && classrooms.length > 0) { %>
+        <h4 class="text-center mt-4">ห้องเรียนของคุณ</h4>
+
+        <!-- ✅ เพิ่มแถบค้นหา -->
+        <div class="mb-3">
+          <input type="text" id="searchInput" class="form-control" placeholder="ค้นหาชื่อห้องเรียน" onkeyup="filterTable()" />
+        </div>
+
+        <div class="table-responsive mt-3">
+          <table id="classroomTable" class="table table-bordered table-striped">
+            <thead>
+              <tr>
+                <th>ชื่อห้องเรียน</th>
+                <th>เลขห้อง</th>
+                <th>ผู้สอน</th>
+                <th>คำอธิบายชั้นเรียน</th>
+                <th>เปอร์เซ็นต์เข้าเรียนขั้นต่ำ</th>
+                <th class="text-center">การจัดการ</th>
+              </tr>
+            </thead>
+            <tbody>
+              <% classrooms.forEach(cls => { %>
+                <tr>
+                  <td><%= cls.classroomname %></td>
+                  <td><%= cls.roomnumber %></td>
+                  <td><%= cls.teacher_fullname %></td>
+                  <td><%= cls.description %></td>
+                  <td><%= cls.minattendancepercent %> %</td>
+                  <td class="text-center d-flex gap-2 justify-content-center align-items-center">
+                    <a href="/classroom/view/<%= cls.classroomid %>" class="btn btn-info btn-sm">เข้าclass</a>
+                    <a href="/classroom/edit/<%= cls.classroomid %>" class="btn btn-warning btn-sm">แก้ไข</a>
+                    <form action="/classroom/delete/<%= cls.classroomid %>" method="POST" style="margin:0;">
+                      <button type="submit" class="btn btn-danger btn-sm" onclick="return confirm('ยืนยันการลบห้องเรียนนี้?')">ลบ</button>
+                    </form>
+                  </td>
+                </tr>
+              <% }) %>
+            </tbody>
+          </table>
+        </div>
+      <% } else { %>
+        <p class="text-center text-muted">ยังไม่มีห้องเรียนที่คุณเป็นเจ้าของ</p>
+      <% } %>
+
+    <% } else if (role === 'student') { %>
+      <% if (classrooms && classrooms.length > 0) { %>
+        <h4 class="text-center mt-4">ห้องเรียนที่คุณเป็นสมาชิก</h4>
+        <div class="table-responsive mt-3">
+          <table class="table table-bordered table-striped">
+            <thead>
+              <tr>
+                <th>ชื่อห้องเรียน</th>
+                <th>เลขห้อง</th>
+                <th>ผู้สอน</th>
+                <th>คำอธิบายชั้นเรียน</th>
+                <th>เปอร์เซ็นต์เข้าเรียนขั้นต่ำ</th>
+                <th class="text-center">รายละเอียด</th>
+              </tr>
+            </thead>
+            <tbody>
+              <% classrooms.forEach(cls => { %>
+                <tr>
+                  <td><%= cls.classroomname %></td>
+                  <td><%= cls.roomnumber %></td>
+                  <td><%= cls.teacher_fullname %></td>
+                  <td><%= cls.description %></td>
+                  <td><%= cls.minattendancepercent %> %</td>
+                  <td class="text-center">
+                    <a href="/classroom/view/<%= cls.classroomid %>" class="btn btn-info btn-sm">ดูรายละเอียด</a>
+                  </td>
+                </tr>
+              <% }) %>
+            </tbody>
+          </table>
+        </div>
+      <% } else { %>
+        <p class="text-center text-muted">คุณยังไม่ได้เป็นสมาชิกในห้องเรียนใด ๆ</p>
+      <% } %>
+    <% } else { %>
+      <p class="text-center">คุณยังไม่มีห้องเรียน</p>
+    <% } %>
+  </div>
+
+  <!-- ✅ Script สำหรับกรองชื่อห้องเรียน -->
+  <script>
+    function filterTable() {
+      const input = document.getElementById('searchInput');
+      const filter = input.value.toLowerCase();
+      const table = document.getElementById('classroomTable');
+      const rows = table.getElementsByTagName('tr');
+
+      for (let i = 1; i < rows.length; i++) {
+        const cell = rows[i].getElementsByTagName('td')[0]; // ช่อง "ชื่อห้องเรียน"
+        if (cell) {
+          const text = cell.textContent || cell.innerText;
+          rows[i].style.display = text.toLowerCase().includes(filter) ? '' : 'none';
+        
+        }
+      }
+    }
+    
+    
+  </script>
+
+  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0-alpha1/dist/js/bootstrap.bundle.min.js"></script>
+</body>
+</html>

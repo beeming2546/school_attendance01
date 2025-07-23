@@ -1,0 +1,63 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>QR Code สำหรับเช็กชื่อ</title>
+  <script src="https://cdn.jsdelivr.net/npm/qrcode/build/qrcode.min.js"></script>
+  <style>
+    body {
+      text-align: center;
+      font-family: sans-serif;
+      margin-top: 30px;
+    }
+    #timer {
+      font-size: 1.5rem;
+      margin-top: 10px;
+      color: #555;
+    }
+  </style>
+</head>
+<body>
+  <h2>QR Code จะอัปเดตทุก 20 วินาที</h2>
+
+  <div id="qrcode"></div>
+  <div id="timer">เหลือเวลา 20 วินาที</div> <!-- ✅ แสดงเวลาถอยหลัง -->
+
+  <script>
+    const classroomId = "<%= classroomId %>";
+    let countdown = 20;
+    const timerElement = document.getElementById('timer');
+
+    const updateCountdown = () => {
+      countdown--;
+      if (countdown <= 0) countdown = 20;
+      timerElement.textContent = `เหลือเวลา ${countdown} วินาที`;
+    };
+
+    const startCountdown = () => {
+      setInterval(updateCountdown, 1000); // อัปเดตทุก 1 วิ
+    };
+
+    const fetchNewToken = async () => {
+      try {
+        const res = await fetch(`/api/qr/${classroomId}`);
+        const data = await res.json();
+
+        const qrContainer = document.getElementById('qrcode');
+        qrContainer.innerHTML = '';
+        QRCode.toCanvas(data.token, { width: 200 }, (err, canvas) => {
+          if (err) return console.error(err);
+          qrContainer.appendChild(canvas);
+        });
+
+        countdown = 20; // รีเวลาใหม่ทุกครั้งที่ QR อัปเดต
+      } catch (err) {
+        console.error('โหลด token ผิดพลาด:', err);
+      }
+    };
+
+    fetchNewToken();
+    setInterval(fetchNewToken, 20000); // รี QR ทุก 20 วินาที
+    startCountdown(); // เริ่มนับถอยหลัง
+  </script>
+</body>
+</html>
