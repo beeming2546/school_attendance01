@@ -2,7 +2,8 @@ const express = require('express');
 const session = require('express-session');
 const bodyParser = require('body-parser');
 const path = require('path');
-const pool = require('./db/pool');      // นำเข้า pool.js
+require('dotenv').config();           // ✅ โหลดค่า .env ก่อนใช้ pool
+const pool = require('./db/pool');    // ต้องใช้ process.env แล้ว
 const indexRoutes = require('./routes/index'); 
 
 const app = express();
@@ -15,26 +16,25 @@ app.use(session({
 }));
 
 app.use(bodyParser.urlencoded({ extended: true }));
-app.use(bodyParser.json()); // ✅ เพิ่มเพื่อรองรับ JSON จาก fetch
+app.use(bodyParser.json());
 app.use(express.static(path.join(__dirname, 'public')));
 app.set('view engine', 'ejs');
 
 // Middleware ให้ user และ showNavbar ใช้งานได้ทุกหน้า
 app.use((req, res, next) => {
-  res.locals.user = req.session.user || null;   // user ที่ล็อกอินอยู่
+  res.locals.user = req.session.user || null;
   res.locals.showNavbar = true;
   next();
 });
 
-// นำเข้า routes อื่น ๆ (ถ้ามี)
+// Routes
 app.use('/', indexRoutes);
 
-// Root route - redirect ไปที่หน้า login
 app.get('/', (req, res) => {
   res.redirect('/login');
 });
 
-// เริ่มเซิร์ฟเวอร์
-app.listen(3000, () => {
+const PORT = process.env.PORT || 3000;
+app.listen(PORT, () => {
   console.log('Server is running on port 3000');
 });
