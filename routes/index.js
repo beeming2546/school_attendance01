@@ -969,4 +969,13 @@ router.get('/classroom/:id/attendance', async (req, res) => {
     res.status(500).send('เกิดข้อผิดพลาดในการโหลดข้อมูล');
   }
 });
+
+
+res.render('qr', {
+  classroomId: req.params.id,
+  showNavbar: true,
+  currentUser: req.session.user,
+  currentRole: 'teacher',
+  students: result.rows // <--- ต้องส่งมา
+});
 module.exports = router;
