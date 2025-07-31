@@ -894,6 +894,49 @@ router.get('/attendance/scan', requireRole('student'), (req, res) => {
 
 // test render
 
+//checkin
+// POST /attendance/checkin
+router.post('/attendance/checkin', async (req, res) => {
+  const { studentid, classroomid, token } = req.body;
 
+  try {
+    // ตรวจสอบ token ว่าใช้งานได้หรือยัง
+    const result = await pool.query(
+      'SELECT * FROM attendancetoken WHERE token = $1 AND classroomid = $2 AND is_used = false',
+      [token, classroomid]
+    );
+
+    if (result.rowCount === 0) {
+      return res.status(400).json({ message: 'Token ไม่ถูกต้อง หรือถูกใช้ไปแล้ว' });
+    }
+
+    // เพิ่มหรืออัปเดตข้อมูลการเข้าเรียน
+    
+await pool.query(
+  `INSERT INTO attendance (studentid, classroomid, date, checkin_time, status, checkin_token)
+   VALUES ($1, $2, CURRENT_DATE, NOW(), 'Present', $3)
+   ON CONFLICT (studentid, classroomid, date)
+   DO UPDATE SET
+     checkin_time = EXCLUDED.checkin_time,
+     status = 'Present',
+     checkin_token = EXCLUDED.checkin_token`,
+  [studentid, classroomid, token]
+);
+
+
+
+    // อัปเดต token เป็นใช้งานแล้ว
+    await pool.query(
+      'UPDATE attendancetoken SET is_used = true WHERE token = $1',
+      [token]
+    );
+
+    return res.json({ message: 'เช็กชื่อสำเร็จแล้ว' });
+
+  } catch (err) {
+    console.error('เกิดข้อผิดพลาด:', err);
+    return res.status(500).json({ message: 'เกิดข้อผิดพลาดในการเช็กชื่อ' });
+  }
+});
 
 module.exports = router;
