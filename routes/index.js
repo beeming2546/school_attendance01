@@ -978,4 +978,36 @@ res.render('qr', {
   currentRole: 'teacher',
   students: result.rows // <--- ต้องส่งมา
 });
+
+router.get('/qr/:id', async (req, res) => {
+  const classroomId = req.params.id;
+  try {
+    const studentQuery = await pool.query(`
+      SELECT
+        s.studentid,
+        s.firstname || ' ' || s.surname AS fullname,
+        COALESCE(a.status, 'Absent') AS status,
+        TO_CHAR(a.time, 'HH24:MI') AS checkin_time
+      FROM classroom_student cs
+      JOIN student s ON cs.studentid = s.studentid
+      LEFT JOIN attendance a
+        ON a.studentid = s.studentid
+        AND a.classroomid = cs.classroomid
+        AND a.date = CURRENT_DATE
+      WHERE cs.classroomid = $1
+      ORDER BY s.firstname
+    `, [classroomId]);
+
+    res.render('qr', {
+      classroomId,
+      students: studentQuery.rows,  // <<< สำคัญ
+      showNavbar: true,
+      currentUser: req.session.user,
+      currentRole: 'teacher'
+    });
+  } catch (err) {
+    console.error('Error loading QR page:', err);
+    res.status(500).send('Internal Server Error');
+  }
+});
 module.exports = router;
