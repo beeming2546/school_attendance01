@@ -27,7 +27,13 @@ app.use((req, res, next) => {
   next();
 });
 
+// นำเข้า routes อื่น ๆ (ถ้ามี)
+app.use('/', indexRoutes);
 
+// Root route - redirect ไปที่หน้า login
+app.get('/', (req, res) => {
+  res.redirect('/login');
+});
 
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
