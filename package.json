@@ -11,13 +11,12 @@
   "description": "",
   "dependencies": {
     "body-parser": "^1.20.3",
-    "dotenv": "^17.2.0",
+    "dotenv": "^17.2.1",
     "ejs": "^3.1.10",
     "express": "^4.21.1",
     "express-session": "^1.18.1",
     "method-override": "^3.0.0",
-    "pg": "^8.13.0",
+    "pg": "^8.16.3",
     "uuid": "^11.1.0"
   }
-  
 }
