@@ -938,5 +938,35 @@ await pool.query(
     return res.status(500).json({ message: 'เกิดข้อผิดพลาดในการเช็กชื่อ' });
   }
 });
+router.get('/classroom/:id/attendance', async (req, res) => {
+  const classroomId = req.params.id;
 
+  try {
+    const result = await pool.query(
+      `SELECT
+        s.studentid,
+        s.firstname || ' ' || s.surname AS fullname,
+        COALESCE(a.status, 'Absent') AS status,
+        TO_CHAR(a.time, 'HH24:MI') AS checkin_time
+      FROM classroom_student cs
+      JOIN student s ON cs.studentid = s.studentid
+      LEFT JOIN attendance a
+        ON a.studentid = s.studentid
+        AND a.classroomid = cs.classroomid
+        AND a.date = CURRENT_DATE
+      WHERE cs.classroomid = $1
+      ORDER BY s.firstname`,
+      [classroomId]
+    );
+
+    res.render('teacher/attendance_list', {
+      students: result.rows,
+      classroomId
+    });
+
+  } catch (err) {
+    console.error(err);
+    res.status(500).send('เกิดข้อผิดพลาดในการโหลดข้อมูล');
+  }
+});
 module.exports = router;

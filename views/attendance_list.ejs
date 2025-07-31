@@ -1,0 +1,42 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Classroom</title>
+  <link rel="stylesheet" href="/style.css" />
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0-alpha1/dist/css/bootstrap.min.css" rel="stylesheet" />
+</head>
+<body>
+  <h2>รายชื่อนักเรียนในห้องเรียน</h2>
+
+<table border="1" cellpadding="8" cellspacing="0">
+  <thead>
+    <tr>
+      <th>รหัสนักเรียน</th>
+      <th>ชื่อ - สกุล</th>
+      <th>สถานะ</th>
+      <th>เวลาเข้าเรียน</th>
+    </tr>
+  </thead>
+  <tbody>
+    <% students.forEach(student => { %>
+      <tr>
+        <td><%= student.studentid %></td>
+        <td><%= student.fullname %></td>
+        <td><%= student.status %></td>
+        <td><%= student.checkin_time || '-' %></td>
+      </tr>
+    <% }) %>
+  </tbody>
+</table>
+
+<a href="/teacher/classroom/<%= classroomId %>">
+  <button>ย้อนกลับ</button>
+</a>
+
+
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0-alpha1/dist/js/bootstrap.bundle.min.js"></script>
+</body>
+</html>
