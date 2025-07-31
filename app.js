@@ -2,7 +2,10 @@ const express = require('express');
 const session = require('express-session');
 const bodyParser = require('body-parser');
 const path = require('path');
-require('dotenv').config();           // ✅ โหลดค่า .env ก่อนใช้ pool
+require('dotenv').config();  
+// บังคับให้ใช้ IPv4 ก่อนเลย
+const dns = require('dns');
+dns.setDefaultResultOrder('ipv4first');         // ✅ โหลดค่า .env ก่อนใช้ pool
 const pool = require('./db/pool');    // ต้องใช้ process.env แล้ว
 const indexRoutes = require('./routes/index'); 
 
