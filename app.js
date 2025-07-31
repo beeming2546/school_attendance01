@@ -4,7 +4,7 @@ const bodyParser = require('body-parser');
 const path = require('path');
 require('dotenv').config();           // ✅ โหลดค่า .env ก่อนใช้ pool
 const pool = require('./db/pool');    // ต้องใช้ process.env แล้ว
-const indexRoutes = require('./routes/index.'); 
+const indexRoutes = require('./routes/index'); 
 
 const app = express();
 
