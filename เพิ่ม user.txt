@@ -1,0 +1,22 @@
+-- เพิ่ม Admin
+INSERT INTO Admin (AdminId, Name, Username, Password)
+VALUES (9999999, 'Test Admin', 'admin', 'admintest');
+INSERT INTO Admin (AdminId, Name, Username, Password)
+VALUES (9999998, 'Test Admin2', 'admin2', 'admintest2');
+INSERT INTO Admin (AdminId, Name, Username, Password, is_master)
+VALUES (99999999, 'Master Admin', 'MasterAdmin', 'MasterAdminTEST1234' , 'true');
+
+
+-- เพิ่ม Teacher
+INSERT INTO Teacher (TeacherId, Firstname, Surname, Username, Password, Email)
+VALUES (9999999, 'Test', 'Teacher', 'teacher', 'Teachertest', 'teacher@example.com');
+INSERT INTO Teacher (TeacherId, Firstname, Surname, Username, Password, Email)
+VALUES (9999998, 'Test2', 'Teacher2', 'teacher2', 'Teachertest2', 'teacher2@example.com');
+
+-- เพิ่ม Student
+INSERT INTO Student (StudentId, Firstname, Surname, Username, Password, Email)
+VALUES (9999999, 'Test', 'Student', 'student', 'Studenttest', 'student2@example.com');
+INSERT INTO Student (StudentId, Firstname, Surname, Username, Password, Email)
+VALUES (9999998, 'Test2', 'Student2', 'student2', 'Studenttest2', 'student2@example.com');
+
+

@@ -1,0 +1,163 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0-alpha1/dist/css/bootstrap.min.css" rel="stylesheet" />
+  <link rel="stylesheet" href="/style.css" />
+  <title>แก้ไข <%= role === 'admin' ? 'ผู้ดูแลระบบ' : (role === 'teacher' ? 'ครู' : 'นักเรียน') %></title>
+  <script>
+    function validatePassword() {
+      const pwd = document.getElementById('password').value;
+      const confirmPwd = document.getElementById('confirm_password').value;
+
+      if (pwd === '' && confirmPwd === '') return true;
+
+      if (pwd !== confirmPwd) {
+        alert('รหัสผ่านใหม่และยืนยันรหัสผ่านไม่ตรงกัน');
+        return false;
+      }
+      return true;
+    }
+
+    function validateForm() {
+      if (!validatePassword()) return false;
+      return confirm('คุณต้องการบันทึกการเปลี่ยนแปลงใช่หรือไม่?');
+    }
+  </script>
+  <style>
+    .btn-group {
+      display: flex;
+      justify-content: center;
+      gap: 15px;
+      margin-top: 25px;
+    }
+    .btn-group button,
+    .btn-group a.btn {
+      min-width: 150px;
+    }
+  </style>
+</head>
+<body>
+  <% if (showNavbar) { %>
+    <%- include('partials/navbar', { currentUser: currentUser, currentRole: currentRole }) %>
+  <% } %>
+
+  <div class="container" style="max-width: 600px; margin: 20px auto; padding: 0 15px;">
+    <h2>แก้ไขข้อมูล <%= role === 'admin' ? 'ผู้ดูแลระบบ' : (role === 'teacher' ? 'ครู' : 'นักเรียน') %></h2>
+
+    <% if (error) { %>
+      <p style="color:red; text-align:center;"><%= error %></p>
+    <% } %>
+
+    <form 
+  action="/admin/edit/<%= role %>/<%= 
+    role === 'admin' ? user.adminid : 
+    role === 'teacher' ? user.teacherid : 
+    user.studentid 
+  %>" 
+  method="POST" 
+  onsubmit="return validateForm();"
+>
+  <div class="form-row">
+    <label>รหัสประจำตัว:</label>
+    <input 
+      type="text" 
+      name="id" 
+      value="<%= 
+        role === 'admin' ? user.adminid : 
+        role === 'teacher' ? user.teacherid : 
+        user.studentid 
+      %>" 
+      readonly 
+    >
+  </div>
+
+  <small class="note">
+    * รหัสประจำตัวแก้ไขไม่ได้ หากต้องการเปลี่ยนให้ลบข้อมูลแล้วสร้างใหม่<br>
+    เพราะรหัสประจำตัวถูกใช้เป็นกุญแจหลัก (Primary Key) ในฐานข้อมูล<br>
+    การแก้ไขโดยตรงอาจทำให้ข้อมูลเชื่อมโยงกับตารางอื่นผิดพลาดได้
+  </small>
+
+  <% if (role === 'admin') { %>
+    <div class="form-row">
+      <label>ชื่อ:</label>
+      <input 
+        type="text" 
+        name="firstname" 
+        value="<%= user.name %>" 
+        required
+      >
+    </div>
+  <% } else { %>
+    <div class="form-row">
+      <label>ชื่อ:</label>
+      <input 
+        type="text" 
+        name="firstname" 
+        value="<%= user.firstname %>" 
+        required
+      >
+    </div>
+
+    <div class="form-row">
+      <label>นามสกุล:</label>
+      <input 
+        type="text" 
+        name="surname" 
+        value="<%= user.surname %>" 
+        required
+      >
+    </div>
+
+    <div class="form-row">
+      <label>อีเมล:</label>
+      <input 
+        type="email" 
+        name="email" 
+        value="<%= user.email %>" 
+        required
+      >
+    </div>
+  <% } %>
+
+  <div class="form-row">
+    <label>ชื่อผู้ใช้:</label>
+    <input 
+      type="text" 
+      name="username" 
+      value="<%= user.username %>" 
+      required
+    >
+  </div>
+
+  <div class="form-row">
+    <label>รหัสผ่านใหม่:</label>
+    <input 
+      type="password" 
+      id="password" 
+      name="password" 
+      placeholder="กรอกถ้าต้องการเปลี่ยน"
+    >
+  </div>
+
+  <div class="form-row">
+    <label>ยืนยันรหัสผ่านใหม่:</label>
+    <input 
+      type="password" 
+      id="confirm_password" 
+      name="confirm_password" 
+      placeholder="กรอกเพื่อยืนยันรหัสผ่านใหม่"
+    >
+  </div>
+
+  <div class="btn-group">
+    <button type="submit" class="btn btn-primary">บันทึกการเปลี่ยนแปลง</button>
+    <a href="/admin/list/<%= role %>" class="btn btn-secondary">ย้อนกลับ</a>
+  </div>
+</form>
+  </div>
+
+  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0-alpha1/dist/js/bootstrap.bundle.min.js"></script>
+</body>
+</html>

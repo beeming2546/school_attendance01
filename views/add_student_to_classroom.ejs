@@ -1,0 +1,78 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>เพิ่มผู้เรียนเข้าชั้นเรียน</title>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0-alpha1/dist/css/bootstrap.min.css" rel="stylesheet" />
+  <link rel="stylesheet" href="/style.css" />
+  <style>
+    .required {
+      color: red;
+      font-weight: bold;
+      margin-left: 4px;
+    }
+    .form-group {
+      margin-bottom: 15px;
+    }
+    label {
+      font-weight: 500;
+    }
+    .btn-group {
+      display: flex;
+      justify-content: center;
+      gap: 15px;
+      margin-top: 25px;
+    }
+    .btn-group button,
+    .btn-group a.btn {
+      min-width: 150px;
+    }
+  </style>
+  <script>
+    function validateForm() {
+      const ids = document.querySelector('textarea[name="studentIds"]').value.trim();
+      const classroomId = document.querySelector('input[name="ClassroomId"]').value;
+      if (!ids || !classroomId) {
+        alert("กรุณากรอกข้อมูลให้ครบทุกช่อง");
+        return false;
+      }
+      return confirm("คุณต้องการบันทึกข้อมูลนี้ใช่หรือไม่?");
+    }
+    
+  </script>
+</head>
+<body>
+  <% if (showNavbar) { %>
+    <%- include('partials/navbar', { currentUser: currentUser, currentRole: currentRole }) %>
+  <% } %>
+
+  <div class="container" style="max-width: 600px; margin: 20px auto; padding: 0 15px;">
+    <h2 class="mb-4 text-center">เพิ่มผู้เรียนเข้าชั้นเรียน</h2>
+
+    <% if (error) { %>
+      <p class="text-danger text-center"><%= error %></p>
+    <% } %>
+
+    <form action="/classroom/add-students" method="POST" onsubmit="return validateForm();">
+      <div class="form-row mb-3">
+        <label>รหัสประจำตัว (สามารถใส่หลายคนคั่นด้วย comma):<span class="required">*</span></label>
+        <textarea class="form-control" name="studentIds" rows="3" placeholder="เช่น 1001,1002,1003" required></textarea>
+      </div>
+
+      <div class="form-row mb-3">
+        <label>ชื่อชั้นเรียน:</label>
+        <input type="text" class="form-control" value="<%= classroomName %>" readonly />
+        <input type="hidden" name="ClassroomId" value="<%= classroomId %>" />
+      </div>
+
+      <div class="btn-group">
+        <button type="submit" class="btn btn-primary">บันทึก</button>
+        <a href="/classroom/<%= classroomId %>/students" class="btn btn-secondary">ย้อนกลับ</a>
+      </div>
+    </form>
+  </div>
+ 
+  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0-alpha1/dist/js/bootstrap.bundle.min.js"></script>
+</body>
+</html>

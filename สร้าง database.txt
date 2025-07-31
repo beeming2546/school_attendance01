@@ -1,0 +1,67 @@
+ก่อนสร้าง database
+ขอให้pgadmin ตรงตามนี้
+
+user: 'postgres',
+host: 'localhost',
+database: 'School_Attendance',
+password: 'rootroot',
+
+
+CREATE DATABASE School_Attendance;
+-- ตารางผู้ดูแลระบบ
+CREATE TABLE Admin (
+    AdminId SERIAL PRIMARY KEY,
+    Name VARCHAR(100) NOT NULL,
+    Username VARCHAR(50) UNIQUE NOT NULL,
+    Password TEXT NOT NULL,
+    is_master BOOLEAN DEFAULT FALSE
+);
+
+-- ตารางอาจารย์
+CREATE TABLE Teacher (
+    TeacherId SERIAL PRIMARY KEY,
+    Firstname VARCHAR(100) NOT NULL,
+    Surname VARCHAR(100) NOT NULL,
+    Username VARCHAR(50) UNIQUE NOT NULL,
+    Password TEXT NOT NULL,
+    Email VARCHAR(100) UNIQUE NOT NULL
+);
+
+-- ตารางนักเรียน
+CREATE TABLE Student (
+    StudentId SERIAL PRIMARY KEY,
+    Firstname VARCHAR(100) NOT NULL,
+    Surname VARCHAR(100) NOT NULL,
+    Username VARCHAR(50) UNIQUE NOT NULL,
+    Password TEXT NOT NULL,
+    Email VARCHAR(100) UNIQUE NOT NULL
+);
+
+-- ตารางห้องเรียน
+CREATE TABLE Classroom (
+    ClassroomId SERIAL PRIMARY KEY,
+    ClassroomName VARCHAR(100) NOT NULL,
+    RoomNumber VARCHAR(50),
+    Description TEXT,
+    MinAttendancePercent INT DEFAULT 75,
+    TeacherId INT REFERENCES Teacher(TeacherId) ON DELETE SET NULL
+);
+
+-- ตารางกลางระหว่างห้องเรียนกับนักเรียน (M:M)
+CREATE TABLE Classroom_Student (
+    ClassroomId INT REFERENCES Classroom(ClassroomId) ON DELETE CASCADE,
+    StudentId INT REFERENCES Student(StudentId) ON DELETE CASCADE,
+    Date DATE,
+    Time TIME,
+    PRIMARY KEY (ClassroomId, StudentId)
+);
+
+-- ตารางเช็คชื่อ
+CREATE TABLE Attendance (
+    AttendanceId SERIAL PRIMARY KEY,
+    Date DATE NOT NULL,
+    Time TIME NOT NULL,
+    Status VARCHAR(10) CHECK (Status IN ('Present', 'Absent', 'Late')) NOT NULL,
+    StudentId INT REFERENCES Student(StudentId) ON DELETE CASCADE,
+    ClassroomId INT REFERENCES Classroom(ClassroomId) ON DELETE CASCADE
+);

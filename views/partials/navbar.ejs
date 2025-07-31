@@ -1,0 +1,22 @@
+<nav class="navbar navbar-expand-lg navbar-dark bg-dark fixed-top">
+  <div class="container-fluid px-4">
+    <span class="navbar-brand"></span>
+    <div class="ms-auto d-flex align-items-center">
+
+      <span class="username me-3 text-white fw-bold">
+        คุณ: 
+        <% if (currentUser && currentRole === 'admin') { %>
+          <%= currentUser.name %>
+        <% } else if (currentUser && currentRole === 'teacher') { %>
+          <%= currentUser.firstname %> <%= currentUser.surname %>
+        <% } else if (currentUser && currentRole === 'student') { %>
+          <%= currentUser.firstname %> <%= currentUser.surname %>
+        <% } %>
+      </span>
+
+      <form action="/logout" method="get" onsubmit="return confirm('คุณต้องการออกจากระบบหรือไม่?');" style="margin: 0;">
+        <button type="submit" class="btn btn-danger btn-sm">ออกจากระบบ</button>
+      </form>
+    </div>
+  </div>
+</nav>
