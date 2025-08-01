@@ -1,0 +1,25 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=<%- include('partials/header') %>
+
+<div class="container mt-5">
+  <h3>เลือกวันที่เพื่อสร้าง QR Code</h3>
+  <form action="/classroom/<%= classroomId %>/generate-token" method="POST">
+    <div class="form-group">
+      <label for="date">วันที่:</label>
+      <input type="date" class="form-control" name="date" id="date" required value="<%= new Date().toISOString().split('T')[0] %>">
+    </div>
+    <button type="submit" class="btn btn-primary mt-3">ยืนยันและสร้าง QR Code</button>
+  </form>
+</div>
+
+<%- include('partials/footer') %>
+, initial-scale=1.0">
+    <title>Document</title>
+</head>
+<body>
+    
+</body>
+</html>

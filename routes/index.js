@@ -1010,4 +1010,27 @@ router.get('/qr/:id', async (req, res) => {
     res.status(500).send('Internal Server Error');
   }
 });
+
+// GET: แสดงหน้าเลือกวันที่
+router.get('/classroom/:id/select-date', async (req, res) => {
+  const { id } = req.params;
+  res.render('select_date', { classroomId: id, currentUser: req.session.user, currentRole: req.session.role });
+});
+
+// POST: ยืนยันแล้วสร้าง token พร้อม redirect ไปแสดง QR
+router.post('/classroom/:id/generate-token', async (req, res) => {
+  const { id } = req.params;
+  const { date } = req.body;
+
+  const token = require('crypto').randomBytes(10).toString('hex');
+  const expireAt = new Date(Date.now() + 1000 * 60 * 20); // หมดอายุใน 20 นาที
+
+  // ใส่วันที่ใน token ด้วย
+  await pool.query(
+    `INSERT INTO attendancetoken (classroom_id, token, expire_at, attendance_date) VALUES ($1, $2, $3, $4)`,
+    [id, token, expireAt, date]
+  );
+
+  res.redirect(`/classroom/${id}/qr?date=${date}`);
+});
 module.exports = router;

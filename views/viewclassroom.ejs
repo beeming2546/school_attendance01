@@ -39,7 +39,7 @@
     <div class="text-center mt-3">
   <% if (currentRole === 'teacher') { %>
     <a href="/classroom/<%= classroom.classroomid %>/students" class="btn btn-primary">ดูรายชื่อผู้เรียน</a>
-    <a href="/attendance/qr-view/<%= classroom.classroomid %>" class="btn btn-success mx-2">สร้าง QR Code</a>
+    <a href="/classroom/<%= classroom.classroomid %>/select-date" class="btn btn-success mx-2">สร้าง QR Code เช็กชื่อ</a>
   <% } %>
   <a href="/classroom" class="btn btn-secondary">ย้อนกลับ</a>
 </div>

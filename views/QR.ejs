@@ -1,33 +1,74 @@
 <!DOCTYPE html>
-<html>
+<html lang="th">
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <link rel="stylesheet" href="/style.css" />
   <title>QR Code สำหรับเช็กชื่อ</title>
+  <link rel="stylesheet" href="/style.css" />
   <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0-alpha1/dist/css/bootstrap.min.css" rel="stylesheet">
   <script src="https://cdn.jsdelivr.net/npm/qrcode/build/qrcode.min.js"></script>
   <style>
     body {
-      text-align: center;
       font-family: sans-serif;
       margin-top: 30px;
     }
+    #qrcode {
+      text-align: center;
+      margin-top: 20px;
+    }
     #timer {
       font-size: 1.5rem;
-      margin-top: 10px;
+      text-align: center;
       color: #555;
+    }
+    h2, h3 {
+      text-align: center;
     }
   </style>
 </head>
 <body>
-   <% if (showNavbar) { %>
+  <% if (showNavbar) { %>
     <%- include('partials/navbar', { currentUser: currentUser, currentRole: currentRole }) %>
   <% } %>
-  <h2>QR Code จะอัปเดตทุก 20 วินาที</h2>
 
+  <h2>QR Code จะอัปเดตทุก 20 วินาที</h2>
   <div id="qrcode"></div>
-  <div id="timer">เหลือเวลา 20 วินาที</div> <!-- ✅ แสดงเวลาถอยหลัง -->
+  <div id="timer">เหลือเวลา 20 วินาที</div>
+
+  <!-- ✅ ตารางรายชื่อนักเรียน -->
+  <div class="container mt-5">
+    <h3>สถานะการเข้าเรียนวันนี้</h3>
+    <table class="table table-bordered mt-3">
+      <thead class="table-light">
+        <tr>
+          <th>รหัสนักเรียน</th>
+          <th>ชื่อ - สกุล</th>
+          <th>สถานะ</th>
+          <th>เวลาเข้าเรียน</th>
+        </tr>
+      </thead>
+      <tbody>
+        <% students.forEach(student => { %>
+          <tr>
+            <td><%= student.studentid %></td>
+            <td><%= student.fullname %></td>
+            <td>
+              <% if (student.status === 'Present') { %>
+                <span class="text-success fw-bold">มาเรียน</span>
+              <% } else { %>
+                <span class="text-danger fw-bold">ขาดเรียน</span>
+              <% } %>
+            </td>
+            <td><%= student.checkin_time || '-' %></td>
+          </tr>
+        <% }) %>
+      </tbody>
+    </table>
+
+    <a href="/teacher/classroom/<%= classroomId %>">
+      <button class="btn btn-secondary mt-3">ย้อนกลับ</button>
+    </a>
+  </div>
 
   <script>
     const classroomId = "<%= classroomId %>";
@@ -41,32 +82,30 @@
     };
 
     const startCountdown = () => {
-      setInterval(updateCountdown, 1000); // อัปเดตทุก 1 วิ
+        setInterval(updateCountdown, 1000);
     };
 
     const fetchNewToken = async () => {
       try {
         const res = await fetch(`/api/qr/${classroomId}`);
         const data = await res.json();
-
         const qrContainer = document.getElementById('qrcode');
         qrContainer.innerHTML = '';
         QRCode.toCanvas(data.token, { width: 200 }, (err, canvas) => {
           if (err) return console.error(err);
           qrContainer.appendChild(canvas);
         });
-
-        countdown = 20; // รีเวลาใหม่ทุกครั้งที่ QR อัปเดต
+        countdown = 20;
       } catch (err) {
         console.error('โหลด token ผิดพลาด:', err);
       }
     };
 
     fetchNewToken();
-    setInterval(fetchNewToken, 20000); // รี QR ทุก 20 วินาที
-    startCountdown(); // เริ่มนับถอยหลัง
+    setInterval(fetchNewToken, 20000);
+    startCountdown();
   </script>
-  <!-- Bootstrap JS -->
+
   <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0-alpha1/dist/js/bootstrap.bundle.min.js"></script>
 </body>
 </html>
