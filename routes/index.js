@@ -951,10 +951,10 @@ router.get('/classroom/:id/attendance', async (req, res) => {
       LEFT JOIN attendance a
         ON a.studentid = s.studentid
         AND a.classroomid = cs.classroomid
-        AND a.date = CURRENT_DATE
+        AND a.date = $2
       WHERE cs.classroomid = $1
       ORDER BY s.firstname`,
-      [classroomId]
+      [classroomId, selectedDate]
     );
 
     res.render('teacher/attendance_list', {
@@ -984,10 +984,10 @@ router.get('/qr/:id', async (req, res) => {
       LEFT JOIN attendance a
         ON a.studentid = s.studentid
         AND a.classroomid = cs.classroomid
-        AND a.date = CURRENT_DATE
+        AND a.date = $2
       WHERE cs.classroomid = $1
       ORDER BY s.firstname
-    `, [classroomId]);
+    `, [classroomId, selectedDate]);
 
     res.render('qr', {
       classroomId,
