@@ -52,7 +52,6 @@
           <tr>
             <td><%= student.studentid %></td>
             <td><%= student.fullname %></td>
-            <td><%= student.checkin_time || '-' %></td>
             <td>
               <% if (student.status === 'Present') { %>
                 <span class="text-success fw-bold">มาเรียน</span>
@@ -60,14 +59,13 @@
                 <span class="text-danger fw-bold">ขาดเรียน</span>
               <% } %>
             </td>
+            <td><%= student.checkin_time || '-' %></td>
           </tr>
         <% }) %>
       </tbody>
     </table>
 
-    <a href="/teacher/classroom/<%= classroomId %>">
-      <button class="btn btn-secondary mt-3">ย้อนกลับ</button>
-    </a>
+    <a href="/classroom/view/<%= classroomId %>" class="btn btn-secondary">ย้อนกลับ</a>
   </div>
 
   <script>
@@ -82,7 +80,7 @@
     };
 
     const startCountdown = () => {
-        setInterval(updateCountdown, 1000);
+      setInterval(updateCountdown, 1000);
     };
 
     const fetchNewToken = async () => {

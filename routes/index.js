@@ -1040,6 +1040,77 @@ router.post('/classroom/:id/generate-token', async (req, res) => {
   res.redirect(`/classroom/${id}/qr?date=${date}`);
 });
 
+// ✅ POST: รับวันที่จาก select_date.ejs และ redirect ไปหน้า QR
+router.post('/classroom/:id/generate-token', async (req, res) => {
+  try {
+    const classroomId = req.params.id;
+    const selectedDate = req.body.date;
+
+    // ✅ Redirect ไปหน้า QR พร้อมแนบวันที่
+    res.redirect(`/qr/${classroomId}?date=${selectedDate}`);
+  } catch (err) {
+    console.error('Error generating token:', err);
+    res.status(500).send('เกิดข้อผิดพลาดในการสร้าง QR Code');
+  }
+});
+
+// ✅ GET: แสดงหน้า QR.ejs พร้อมนักเรียนและสถานะในวันนั้น
+router.get('/qr/:id', async (req, res) => {
+  try {
+    const classroomId = req.params.id;
+    const selectedDate = req.query.date || new Date().toISOString().split('T')[0];
+
+    const studentQuery = await pool.query(`
+      SELECT 
+        s.studentid,
+        s.firstname || ' ' || s.surname AS fullname,
+        COALESCE(a.status, 'Absent') AS status,
+        TO_CHAR(a.time, 'HH24:MI') AS checkin_time
+      FROM classroom_student cs
+      JOIN student s ON cs.studentid = s.studentid
+      LEFT JOIN attendance a 
+        ON a.studentid = s.studentid 
+        AND a.classroomid = cs.classroomid
+        AND a.date = $2
+      WHERE cs.classroomid = $1
+      ORDER BY s.firstname
+    `, [classroomId, selectedDate]);
+
+    const token = `classroom:${classroomId}|date:${selectedDate}|ts:${Date.now()}`;
+
+    res.render('QR', {
+      classroomId,
+      students: studentQuery.rows,
+      currentUser: req.session.user,
+      currentRole: 'teacher',
+      showNavbar: true,
+      selectedDate,
+      token // ✅ ส่ง token ไปให้ qr.ejs
+    });
+  } catch (err) {
+    console.error('Error loading QR page:', err);
+    res.status(500).send('ไม่สามารถโหลดหน้า QR ได้');
+  }
+});
+
+// ✅ API สำหรับ fetch QR token ใหม่ทุก 20 วิ
+router.get('/api/qr/:id', async (req, res) => {
+  try {
+    const classroomId = req.params.id;
+    const selectedDate = new Date().toISOString().split('T')[0];
+    const token = `classroom:${classroomId}|date:${selectedDate}|ts:${Date.now()}`;
+    res.json({ token });
+  } catch (err) {
+    console.error('Error generating QR API:', err);
+    res.status(500).json({ error: 'ไม่สามารถสร้าง token ได้' });
+  }
+});
+
+// ✅ GET: แสดงหน้าเลือกวันที่
+router.get('/classroom/:id/select-date', async (req, res) => {
+  const { id } = req.params;
+  res.render('select_date', { classroomId: id, currentUser: req.session.user, currentRole: req.session.role });
+});
 
 
 module.exports = router;
