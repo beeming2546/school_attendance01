@@ -990,7 +990,7 @@ router.get('/qr/:id', async (req, res) => {
       ORDER BY s.firstname
     `, [classroomId, selectedDate]);
 
-    res.render('qr', {
+    res.render('QR', {
       classroomId,
       students: studentQuery.rows,  // <<< สำคัญ
       showNavbar: true,
