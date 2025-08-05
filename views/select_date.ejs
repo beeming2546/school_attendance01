@@ -4,7 +4,9 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>เลือกวันที่เพื่อสร้าง QR</title>
-  <%- include('partials/header') %>
+  <% if (showNavbar) { %>
+    <%- include('partials/navbar', { currentUser, currentRole }) %>
+  <% } %>
 </head>
 <body>
 
