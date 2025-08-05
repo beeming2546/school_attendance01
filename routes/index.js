@@ -972,6 +972,7 @@ router.get('/classroom/:id/attendance', async (req, res) => {
   
 router.get('/qr/:id', async (req, res) => {
   const classroomId = req.params.id;
+  const selectedDate = req.query.date || new Date().toISOString().split('T')[0];
   try {
     const studentQuery = await pool.query(`
       SELECT
