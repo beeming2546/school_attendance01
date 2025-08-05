@@ -1112,5 +1112,16 @@ router.get('/classroom/:id/select-date', async (req, res) => {
   res.render('select_date', { classroomId: id, currentUser: req.session.user, currentRole: req.session.role });
 });
 
+// ✅ สร้าง token แบบง่าย
+function generateToken(classroomId) {
+  return `CLASSROOM-${classroomId}-${Date.now()}`;
+}
+
+// ✅ เส้นทาง API สำหรับสร้าง QR Token
+router.get('/api/qr/:id', (req, res) => {
+  const classroomId = req.params.id;
+  const token = generateToken(classroomId);
+  res.json({ token });
+});
 
 module.exports = router;
