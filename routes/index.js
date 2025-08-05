@@ -923,8 +923,6 @@ await pool.query(
   [studentid, classroomid, token]
 );
 
-
-
     // อัปเดต token เป็นใช้งานแล้ว
     await pool.query(
       'UPDATE attendancetoken SET is_used = true WHERE token = $1',
@@ -968,17 +966,10 @@ router.get('/classroom/:id/attendance', async (req, res) => {
     console.error(err);
     res.status(500).send('เกิดข้อผิดพลาดในการโหลดข้อมูล');
   }
-});
+}
+);
 
-
-res.render('qr', {
-  classroomId: req.params.id,
-  showNavbar: true,
-  currentUser: req.session.user,
-  currentRole: 'teacher',
-  students: result.rows // <--- ต้องส่งมา
-});
-
+  
 router.get('/qr/:id', async (req, res) => {
   const classroomId = req.params.id;
   try {
