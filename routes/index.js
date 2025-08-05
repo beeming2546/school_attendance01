@@ -998,7 +998,7 @@ router.get('/qr/:id', async (req, res) => {
     });
   } catch (err) {
     console.error('Error loading QR page:', err);
-    res.status(500).send('Internal Server Error');
+    res.status(500).send('beee');
   }
 });
 
