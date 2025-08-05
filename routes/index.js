@@ -1008,6 +1008,20 @@ router.get('/classroom/:id/select-date', async (req, res) => {
   res.render('select_date', { classroomId: id, currentUser: req.session.user, currentRole: req.session.role });
 });
 
+// POST: รับวันที่จากฟอร์ม select_date.ejs แล้ว redirect ไปหน้า QR
+router.post('/classroom/:id/generate-token', async (req, res) => {
+  try {
+    const classroomId = req.params.id;
+    const selectedDate = req.body.date;
+
+    // Redirect ไปยังหน้า qr พร้อมส่งวันที่
+    res.redirect(`/qr/${classroomId}?date=${selectedDate}`);
+  } catch (err) {
+    console.error('Error generating token:', err);
+    res.status(500).send('เกิดข้อผิดพลาดในการสร้าง QR Code');
+  }
+});
+
 // POST: ยืนยันแล้วสร้าง token พร้อม redirect ไปแสดง QR
 router.post('/classroom/:id/generate-token', async (req, res) => {
   const { id } = req.params;
@@ -1024,4 +1038,7 @@ router.post('/classroom/:id/generate-token', async (req, res) => {
 
   res.redirect(`/classroom/${id}/qr?date=${date}`);
 });
+
+
+
 module.exports = router;
