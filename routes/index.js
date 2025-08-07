@@ -2,6 +2,7 @@ const express = require('express');
 const router = express.Router();
 const pool = require('../db/pool');
 const { requireRole, requireAnyRole, requireMasterAdmin } = require('../middlewares/auth');
+const qr = require('qrcode');
 
 //------------------------------------------------------------------
 //--------------------------LOGIN----------------------------------
@@ -1172,20 +1173,33 @@ router.get('/attendance/confirm/:token', async (req, res) => {
   });
 });
 
-const qr = require('qrcode');
 
-// สร้าง token + URL
-const token = uuidv4();
-const url = `https://ance01.onrender.com/attendance/confirm/${token}`;
+router.get('/generate-qr/:classroomId', requireRole('teacher'), async (req, res) => {
+  try {
+    const classroomId = parseInt(req.params.classroomId);
+    const token = uuidv4();
+    const url = `https://ance01.onrender.com/attendance/confirm/${token}`;
 
-// เก็บ token ลงตาราง attendance
-await pool.query('INSERT INTO attendance (token, classroom_id, ...) VALUES (...)');
+    // ✅ จุดนี้อาจ Error ถ้าชื่อคอลัมน์ไม่ตรง → ตรวจสอบตาราง attendance ให้ดี
+    await pool.query(
+      'INSERT INTO attendance (token, classroomid, created_at) VALUES ($1, $2, NOW())',
+      [token, classroomId]
+    );
 
-// สร้าง QR จาก URL นี้
-const qrCode = await qr.toDataURL(url);
+    const qrCode = await qr.toDataURL(url);
 
-// ส่ง qrCode ไป render บนหน้า qr.ejs
-res.render('qr', { qrCode });
+    res.render('qr', {
+      qrCode,
+      classroomId,
+      currentUser: req.session.user,
+      currentRole: req.session.role,
+      showNavbar: true
+    });
 
+  } catch (err) {
+    console.error('Error generating QR:', err);
+    res.status(500).send('ไม่สามารถสร้าง QR ได้');
+  }
+});
 
 module.exports = router;
