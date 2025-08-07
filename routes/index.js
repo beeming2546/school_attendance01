@@ -1086,7 +1086,8 @@ router.get('/qr/:id', async (req, res) => {
       currentRole: 'teacher',
       showNavbar: true,
       selectedDate,
-      token // ✅ ส่ง token ไปให้ qr.ejs
+      token,  // << ส่ง token ไป
+      qrUrl: `https://school-attendance01.onrender.com/attendance/confirm/$%7Btoken%7D` // << ส่ง url ที่ฝัง token ไป
     });
   } catch (err) {
     console.error('Error loading QR page:', err);
