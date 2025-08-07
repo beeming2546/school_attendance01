@@ -1179,6 +1179,7 @@ router.get('/generate-qr/:classroomId', requireRole('teacher'), async (req, res)
   try {
     const classroomId = parseInt(req.params.classroomId);
     const token = uuidv4();
+    console.log("🎯 Token ที่สร้าง:", token);
     const url = `https://ance01.onrender.com/attendance/confirm/${token}`;
 
     // ✅ จุดนี้อาจ Error ถ้าชื่อคอลัมน์ไม่ตรง → ตรวจสอบตาราง attendance ให้ดี
