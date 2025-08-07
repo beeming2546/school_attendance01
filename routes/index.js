@@ -807,7 +807,7 @@ router.post('/classroom/:classroomId/students/:studentId/remove', requireRole('t
 //--------------------------QR TOKEN SYSTEM--------------------------
 //------------------------------------------------------------------
 
-const { v4: uuidv4 } = require('uuid');
+
 
 // ✅ GET: สร้าง QR Token แบบ one-time (ครูเท่านั้น)
 router.get('/api/qr/:classroomId', requireRole('teacher'), async (req, res) => {
