@@ -3,6 +3,7 @@ const router = express.Router();
 const pool = require('../db/pool');
 const { requireRole, requireAnyRole, requireMasterAdmin } = require('../middlewares/auth');
 const qr = require('qrcode');
+const { v4: uuidv4 } = require('uuid');
 
 //------------------------------------------------------------------
 //--------------------------LOGIN----------------------------------
@@ -1180,22 +1181,38 @@ router.get('/attendance/confirm/:token', async (req, res) => {
   });
 });
 
+
 router.get('/generate-qr/:classroomId', requireRole('teacher'), async (req, res) => {
   try {
     const classroomId = parseInt(req.params.classroomId);
     const token = uuidv4();
-    console.log("🎯 Token ที่สร้าง:", token);
 
+    // ✅ สร้าง URL เต็มที่จะฝังใน QR
+    const baseUrl = `${req.protocol}://${req.get('host')}`;
+    const url = `${baseUrl}/attendance/confirm/${token}`;
+
+    // ✅ สร้างภาพ QR Code จาก URL
+    const qrCode = await qr.toDataURL(url);
+
+    // ✅ บันทึก token ลงตาราง attendance
     await pool.query(
       'INSERT INTO attendance (token, classroomid, created_at) VALUES ($1, $2, NOW())',
       [token, classroomId]
     );
 
-    // 👉 แทนที่จะส่งกลับ URL หรือ QR Code → render หน้ายืนยันเช็คชื่อให้เลย
-    res.render('attendance_confirm', { token }); // ✅ ส่ง token ไปให้ view
+    // ✅ ส่งไปยัง view พร้อมแสดง QR และลิงก์
+    res.render('qr', {
+      qrCode,
+      qrUrl: url,
+      classroomId,
+      currentUser: req.session.user,
+      currentRole: req.session.role,
+      showNavbar: true
+    });
+
   } catch (err) {
-    console.error(err);
-    res.status(500).send("เกิดข้อผิดพลาดในการสร้าง QR");
+    console.error('❌ Error generating QR:', err);
+    res.status(500).send('เกิดข้อผิดพลาดในการสร้าง QR');
   }
 });
 
@@ -1222,5 +1239,7 @@ router.post('/attendance/submit', async (req, res) => {
 
   res.send("✅ เช็คชื่อสำเร็จ");
 });
+
+
 
 module.exports = router;
