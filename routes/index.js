@@ -1180,27 +1180,17 @@ router.get('/generate-qr/:classroomId', requireRole('teacher'), async (req, res)
     const classroomId = parseInt(req.params.classroomId);
     const token = uuidv4();
     console.log("🎯 Token ที่สร้าง:", token);
-    const url = `https://ance01.onrender.com/attendance/confirm/${token}`;
 
-    // ✅ จุดนี้อาจ Error ถ้าชื่อคอลัมน์ไม่ตรง → ตรวจสอบตาราง attendance ให้ดี
     await pool.query(
       'INSERT INTO attendance (token, classroomid, created_at) VALUES ($1, $2, NOW())',
       [token, classroomId]
     );
 
-    const qrCode = await qr.toDataURL(url);
-
-    res.render('qr', {
-      qrCode,
-      classroomId,
-      currentUser: req.session.user,
-      currentRole: req.session.role,
-      showNavbar: true
-    });
-
+    // 👉 แทนที่จะส่งกลับ URL หรือ QR Code → render หน้ายืนยันเช็คชื่อให้เลย
+    res.render('attendance_confirm', { token }); // ✅ ส่ง token ไปให้ view
   } catch (err) {
-    console.error('Error generating QR:', err);
-    res.status(500).send('ไม่สามารถสร้าง QR ได้');
+    console.error(err);
+    res.status(500).send("เกิดข้อผิดพลาดในการสร้าง QR");
   }
 });
 
