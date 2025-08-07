@@ -1129,6 +1129,7 @@ router.get('/api/qr/:id', (req, res) => {
 router.get('/attendance/confirm/:token', async (req, res) => {
   const token = req.params.token;
   const student = req.session.user;
+  console.log('session.user:', req.session.user);
 
   // 1. ดึงข้อมูล attendance และ classroom
   const result = await pool.query(
