@@ -1171,4 +1171,21 @@ router.get('/attendance/confirm/:token', async (req, res) => {
     student
   });
 });
+
+const qr = require('qrcode');
+
+// สร้าง token + URL
+const token = uuidv4();
+const url = `https://ance01.onrender.com/attendance/confirm/${token}`;
+
+// เก็บ token ลงตาราง attendance
+await pool.query('INSERT INTO attendance (token, classroom_id, ...) VALUES (...)');
+
+// สร้าง QR จาก URL นี้
+const qrCode = await qr.toDataURL(url);
+
+// ส่ง qrCode ไป render บนหน้า qr.ejs
+res.render('qr', { qrCode });
+
+
 module.exports = router;
