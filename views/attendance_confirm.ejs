@@ -1,0 +1,45 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <link rel="stylesheet" href="/style.css" />
+  <title>แผงควบคุมผู้ดูแลระบบ</title>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0-alpha1/dist/css/bootstrap.min.css" rel="stylesheet">
+</head>
+<body>
+
+  <% if (showNavbar) { %>
+    <%- include('partials/navbar', { currentUser: currentUser, currentRole: currentRole }) %>
+  <% } %>
+   <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0-alpha1/dist/js/bootstrap.bundle.min.js"></script>
+   <!-- views/attendance_confirm.ejs -->
+<h2>ยืนยันการเช็คชื่อ</h2>
+
+<form action="/attendance/submit" method="POST">
+  <div>
+    <label>ชื่อชั้นเรียน:</label>
+    <input type="text" value="<%= classroom.name %>" readonly>
+  </div>
+  <div>
+    <label>วันที่:</label>
+    <input type="text" value="<%= date %>" readonly>
+  </div>
+  <div>
+    <label>เวลา:</label>
+    <input type="text" value="<%= time %>" readonly>
+  </div>
+  <div>
+    <label>รหัสประจำตัว:</label>
+    <input type="text" value="<%= student.id %>" readonly>
+  </div>
+
+  <!-- ซ่อนข้อมูลที่ต้องใช้ในการ submit -->
+  <input type="hidden" name="attendanceId" value="<%= attendanceId %>">
+  <input type="hidden" name="studentId" value="<%= student.id %>">
+
+  <button type="submit">ยืนยันการเช็คชื่อ</button>
+</form>
+
+</body>
+</html>

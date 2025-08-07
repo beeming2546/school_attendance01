@@ -1124,4 +1124,51 @@ router.get('/api/qr/:id', (req, res) => {
   res.json({ token });
 });
 
+
+router.get('/attendance/confirm/:token', async (req, res) => {
+  const token = req.params.token;
+  const student = req.session.user;
+
+  // 1. ดึงข้อมูล attendance และ classroom
+  const result = await pool.query(
+    `SELECT a.id AS attendanceId, c.id AS classroomId, c.name AS classroomName
+     FROM attendance a
+     JOIN classrooms c ON a.classroom_id = c.id
+     WHERE a.token = $1`,
+    [token]
+  );
+
+  if (result.rows.length === 0) {
+    return res.status(404).send('ไม่พบข้อมูลการเช็คชื่อ');
+  }
+
+  const { attendanceid, classroomid, classroomname } = result.rows[0];
+
+  // 2. ตรวจสอบว่าผู้เรียนอยู่ในห้องหรือไม่
+  const check = await pool.query(
+    `SELECT * FROM classroom_students
+     WHERE classroom_id = $1 AND student_id = $2`,
+    [classroomid, student.id]
+  );
+
+  if (check.rows.length === 0) {
+    return res.render('not_enrolled', {
+      classroomName: classroomname,
+      studentName: student.name
+    });
+  }
+
+  // 3. แสดงหน้าฟอร์มยืนยัน
+  const now = new Date();
+  const date = now.toLocaleDateString('th-TH');
+  const time = now.toLocaleTimeString('th-TH');
+
+  res.render('attendance_confirm', {
+    attendanceId: attendanceid,
+    classroom: { name: classroomname },
+    date,
+    time,
+    student
+  });
+});
 module.exports = router;
