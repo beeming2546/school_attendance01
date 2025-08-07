@@ -1129,42 +1129,47 @@ router.get('/api/qr/:id', (req, res) => {
 router.get('/attendance/confirm/:token', async (req, res) => {
   const token = req.params.token;
   const student = req.session.user;
-  console.log('session.user:', req.session.user);
 
-  // 1. ดึงข้อมูล attendance และ classroom
+  // ตรวจสอบ session
+  if (!student) {
+    return res.redirect('/login'); // ถ้าไม่ login
+  }
+
+  // ดึงข้อมูลจาก token
   const result = await pool.query(
-    `SELECT a.id AS attendanceId, c.id AS classroomId, c.name AS classroomName
+    `SELECT a.id AS attendanceid, c.id AS classroomid, c.name AS classroomname
      FROM attendance a
-     JOIN classrooms c ON a.classroom_id = c.id
+     JOIN classrooms c ON a.classroomid = c.id
      WHERE a.token = $1`,
     [token]
   );
 
-  if (result.rows.length === 0) {
-    return res.status(404).send('ไม่พบข้อมูลการเช็คชื่อ');
+  if (result.rowCount === 0) {
+    return res.status(404).send("ไม่พบข้อมูลการเช็คชื่อ");
   }
 
   const { attendanceid, classroomid, classroomname } = result.rows[0];
 
-  // 2. ตรวจสอบว่าผู้เรียนอยู่ในห้องหรือไม่
+  // ตรวจสอบว่านักเรียนอยู่ในคลาสนี้ไหม
   const check = await pool.query(
     `SELECT * FROM classroom_students
      WHERE classroom_id = $1 AND student_id = $2`,
     [classroomid, student.id]
   );
 
-  if (check.rows.length === 0) {
+  if (check.rowCount === 0) {
     return res.render('not_enrolled', {
       classroomName: classroomname,
       studentName: student.name
     });
   }
 
-  // 3. แสดงหน้าฟอร์มยืนยัน
+  // เตรียมข้อมูล
   const now = new Date();
   const date = now.toLocaleDateString('th-TH');
   const time = now.toLocaleTimeString('th-TH');
 
+  // ✅ render attendance_confirm.ejs พร้อมข้อมูล
   res.render('attendance_confirm', {
     attendanceId: attendanceid,
     classroom: { name: classroomname },
@@ -1173,7 +1178,6 @@ router.get('/attendance/confirm/:token', async (req, res) => {
     student
   });
 });
-
 
 router.get('/generate-qr/:classroomId', requireRole('teacher'), async (req, res) => {
   try {
@@ -1192,6 +1196,30 @@ router.get('/generate-qr/:classroomId', requireRole('teacher'), async (req, res)
     console.error(err);
     res.status(500).send("เกิดข้อผิดพลาดในการสร้าง QR");
   }
+});
+
+router.post('/attendance/submit', async (req, res) => {
+  const { attendanceId, studentId } = req.body;
+
+  // ตรวจสอบว่ามีการเช็คชื่อซ้ำหรือยัง
+  const check = await pool.query(
+    `SELECT * FROM attendance_records
+     WHERE attendance_id = $1 AND student_id = $2`,
+    [attendanceId, studentId]
+  );
+
+  if (check.rowCount > 0) {
+    return res.send("คุณได้เช็คชื่อไปแล้ว");
+  }
+
+  // บันทึกการเช็คชื่อ
+  await pool.query(
+    `INSERT INTO attendance_records (attendance_id, student_id, checked_at)
+     VALUES ($1, $2, NOW())`,
+    [attendanceId, studentId]
+  );
+
+  res.send("✅ เช็คชื่อสำเร็จ");
 });
 
 module.exports = router;
