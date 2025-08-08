@@ -774,13 +774,12 @@ router.post('/api/scan', requireRole('student'), async (req, res) => {
 
     // บันทึกการเช็กชื่อ (upsert)
     await pool.query(
-      `INSERT INTO attendance (studentid, classroomid, date, checkin_time, status, checkin_token)
-       VALUES ($1, $2, CURRENT_DATE, NOW(), 'Present', $3)
+      `INSERT INTO attendance (studentid, classroomid, date, "time", status)
+       VALUES ($1, $2, CURRENT_DATE, NOW()::time, 'Present')
        ON CONFLICT (studentid, classroomid, date)
        DO UPDATE SET
-         checkin_time = EXCLUDED.checkin_time,
-         status = 'Present',
-         checkin_token = EXCLUDED.checkin_token`,
+        "time" = EXCLUDED."time",
+         status = 'Present'`,
       [studentId, classroomId, token]
     );
 
@@ -844,6 +843,46 @@ router.get('/attendance/scan', requireRole('student'), (req, res) => {
   });
 });
 
+router.post('/attendance/checkin', async (req, res) => {
+  const { studentid, classroomid, token } = req.body;
+
+  try {
+    // ตรวจสอบ token ว่าใช้งานได้หรือยัง
+    const result = await pool.query(
+      'SELECT * FROM attendancetoken WHERE token = $1 AND classroomid = $2 AND is_used = false',
+      [token, classroomid]
+    );
+
+    if (result.rowCount === 0) {
+      return res.status(400).json({ message: 'Token ไม่ถูกต้อง หรือถูกใช้ไปแล้ว' });
+    }
+
+    // เพิ่มหรืออัปเดตข้อมูลการเข้าเรียน
+    
+await pool.query(
+  `INSERT INTO attendance (studentid, classroomid, date, "time", status)
+  VALUES ($1, $2, CURRENT_DATE, NOW()::time, 'Present')
+  ON CONFLICT (studentid, classroomid, date)
+  DO UPDATE SET
+    "time" = EXCLUDED."time",
+    status = 'Present'`,
+  [studentid, classroomid, token]
+);
+
+    // อัปเดต token เป็นใช้งานแล้ว
+    await pool.query(
+      'UPDATE attendancetoken SET is_used = true WHERE token = $1',
+      [token]
+    );
+
+    return res.json({ message: 'เช็กชื่อสำเร็จแล้ว' });
+
+  } catch (err) {
+    console.error('เกิดข้อผิดพลาด:', err);
+    return res.status(500).json({ message: 'เกิดข้อผิดพลาดในการเช็กชื่อ' });
+  }
+});
+
 // รายงานสถานะเข้าชั้น (ของครู) ตามวัน
 router.get('/classroom/:id/attendance', requireRole('teacher'), async (req, res) => {
   const classroomId = req.params.id;
@@ -855,7 +894,7 @@ router.get('/classroom/:id/attendance', requireRole('teacher'), async (req, res)
         s.studentid,
         s.firstname || ' ' || s.surname AS fullname,
         COALESCE(a.status, 'Absent') AS status,
-        TO_CHAR(a.time, 'HH24:MI') AS checkin_time
+        TO_CHAR(a."time", 'HH24:MI') AS checkin_time
       FROM classroom_student cs
       JOIN student s ON cs.studentid = s.studentid
       LEFT JOIN attendance a
