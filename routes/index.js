@@ -1201,7 +1201,7 @@ router.get('/generate-qr/:classroomId', requireRole('teacher'), async (req, res)
     );
 
     // ✅ ส่งไปยัง view พร้อมแสดง QR และลิงก์
-    res.render('qr', {
+    res.render('QR', {
       qrCode,
       qrUrl: url,
       classroomId,
