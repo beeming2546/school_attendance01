@@ -802,7 +802,7 @@ router.get('/qr/:id', requireRole('teacher'), async (req, res) => {
         s.studentid,
         s.firstname || ' ' || s.surname AS fullname,
         COALESCE(a.status, 'Absent') AS status,
-        TO_CHAR(a.checkin_time, 'HH24:MI') AS checkin_time
+        TO_CHAR(a."time", 'HH24:MI') AS checkin_time
       FROM classroom_student cs
       JOIN student s ON cs.studentid = s.studentid
       LEFT JOIN attendance a
@@ -855,7 +855,7 @@ router.get('/classroom/:id/attendance', requireRole('teacher'), async (req, res)
         s.studentid,
         s.firstname || ' ' || s.surname AS fullname,
         COALESCE(a.status, 'Absent') AS status,
-        TO_CHAR(a.checkin_time, 'HH24:MI') AS checkin_time
+        TO_CHAR(a.time, 'HH24:MI') AS checkin_time
       FROM classroom_student cs
       JOIN student s ON cs.studentid = s.studentid
       LEFT JOIN attendance a
