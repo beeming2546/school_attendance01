@@ -780,7 +780,7 @@ router.post('/api/scan', requireRole('student'), async (req, res) => {
        DO UPDATE SET
         "time" = EXCLUDED."time",
          status = 'Present'`,
-      [studentId, classroomId, token]
+      [studentId, classroomId]
     );
 
     res.json({ message: 'เช็กชื่อสำเร็จ', classroomId });
@@ -866,7 +866,7 @@ await pool.query(
   DO UPDATE SET
     "time" = EXCLUDED."time",
     status = 'Present'`,
-  [studentid, classroomid, token]
+  [studentid, classroomid]
 );
 
     // อัปเดต token เป็นใช้งานแล้ว
