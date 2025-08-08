@@ -867,7 +867,7 @@ router.post('/api/scan', requireRole('student'), async (req, res) => {
 
 // ✅ GET: แสดงหน้า QR View สำหรับครู
 router.get('/attendance/qr-view/:classroomId', requireRole('teacher'), (req, res) => {
-  res.render('QR', {  // ✅ ตรงกับไฟล์ views/QR.ejs
+  res.render('qr', {  // ✅ ตรงกับไฟล์ views/QR.ejs
     classroomId: req.params.classroomId,
     currentUser: req.session.user,
     currentRole: req.session.role,
@@ -886,7 +886,7 @@ router.get('/scan', requireRole('student'), (req, res) => {
 });
 
 router.get('/attendance/scan', requireRole('student'), (req, res) => {
-  res.render('scanQR', {
+  res.render('scan', {
     currentUser: req.session.user,
     currentRole: req.session.role,
     showNavbar: true
@@ -992,7 +992,7 @@ router.get('/qr/:id', async (req, res) => {
       ORDER BY s.firstname
     `, [classroomId, selectedDate]);
 
-    res.render('QR', {
+    res.render('qr', {
       classroomId,
       students: studentQuery.rows,  // <<< สำคัญ
       showNavbar: true,
@@ -1080,7 +1080,7 @@ router.get('/qr/:id', async (req, res) => {
 
     const token = `classroom:${classroomId}|date:${selectedDate}|ts:${Date.now()}`;
 
-    res.render('QR', {
+    res.render('qr', {
       classroomId,
       students: studentQuery.rows,
       currentUser: req.session.user,
@@ -1201,7 +1201,7 @@ router.get('/generate-qr/:classroomId', requireRole('teacher'), async (req, res)
     );
 
     // ✅ ส่งไปยัง view พร้อมแสดง QR และลิงก์
-    res.render('QR', {
+    res.render('qr', {
       qrCode,
       qrUrl: url,
       classroomId,
