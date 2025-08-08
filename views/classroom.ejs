@@ -67,6 +67,11 @@
     <% } else if (role === 'student') { %>
       <% if (classrooms && classrooms.length > 0) { %>
         <h4 class="text-center mt-4">ห้องเรียนที่คุณเป็นสมาชิก</h4>
+        <div class="mt-3">
+    <a href="/scan" class="btn btn-success">
+      📷 สแกน QR เพื่อเช็กชื่อ
+    </a>
+  </div>
         <div class="table-responsive mt-3">
           <table class="table table-bordered table-striped">
             <thead>
