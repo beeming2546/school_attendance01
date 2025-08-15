@@ -1,0 +1,53 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>คะแนนการเช็คชื่อของฉัน</title>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0-alpha1/dist/css/bootstrap.min.css" rel="stylesheet">
+  <style>
+    .report-box { border: 2px solid #333; padding: 20px; max-width: 720px; margin: 0 auto; }
+    .report-title { font-weight: 700; text-align: center; margin-bottom: 12px; }
+    .line { margin-bottom: .35rem; text-align: center; }
+    .label { font-weight: 600; }
+  </style>
+</head>
+<body>
+  <% if (showNavbar) { %>
+    <%- include('partials/navbar', { currentUser, currentRole }) %>
+  <% } %>
+
+  <div class="container my-4">
+    <div class="report-box">
+      <div class="report-title">รายงาน ข้อมูลคะแนนการเช็คชื่อเข้าชั้นเรียน</div>
+
+      <p class="line"><span class="label">ชื่อชั้นเรียน</span> &nbsp; <%= classroom.classroomname %></p>
+
+      <% if (!hasAnySession) { %>
+        <div class="alert alert-info text-center my-3">
+          ยังไม่มีการเช็คชื่อของชั้นเรียนนี้
+        </div>
+      <% } else { %>
+        <p class="line"><span class="label">จำนวนเข้าเรียน</span> &nbsp; <%= present %></p>
+        <p class="line"><span class="label">จำนวนขาดเรียน</span> &nbsp; <%= absent %></p>
+        <p class="line"><span class="label">เปอร์เซ็นต์การเข้าเรียน</span> &nbsp; <%= percent %>%</p>
+        <p class="line"><span class="label">เปอร์เซ็นต์การเข้าเรียนขั้นต่ำ</span> &nbsp; <%= minPercent %>%</p>
+        <p class="line">
+          <span class="label">สถานะการเข้าเรียน</span> &nbsp;
+          <% if (isPass) { %>
+            <span class="text-success fw-bold">ผ่านเกณฑ์</span>
+          <% } else { %>
+            <span class="text-danger fw-bold">ไม่ผ่านเกณฑ์</span>
+          <% } %>
+        </p>
+      <% } %>
+    </div>
+
+    <div class="text-center mt-3">
+      <a class="btn btn-secondary" href="/classroom/view/<%= classroom.classroomid %>">ย้อนกลับ</a>
+    </div>
+  </div>
+
+  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0-alpha1/dist/js/bootstrap.bundle.min.js"></script>
+</body>
+</html>

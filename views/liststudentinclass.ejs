@@ -53,6 +53,10 @@
     <div class="mt-4 text-center">
       <% if (currentRole === 'teacher') { %>
         <a href="/classroom/add-students?classroomId=<%= classroom.classroomid %>" class="btn btn-success me-2">เพิ่มนักเรียน</a>
+        <a class="btn btn-outline-primary"
+   href="/classroom/<%= classroom.classroomid %>/attendance-scores">
+  ดูคะแนนเช็คชื่อ (ทั้งห้อง)
+</a>
       <% } %>
       <a href="/classroom/view/<%= classroom.classroomid %>" class="btn btn-secondary">ย้อนกลับ</a>
     </div>

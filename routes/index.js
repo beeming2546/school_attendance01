@@ -743,37 +743,7 @@ router.get('/classroom/:id/students', requireAnyRole(['teacher', 'student']), as
     res.redirect('/classroom');
   }
 });
-router.get('/classroom/:id/students', requireAnyRole(['teacher', 'student']), async (req, res) => {
-  const classroomId = req.params.id;
 
-  try {
-    // ดึงข้อมูลห้องเรียน
-    const classRes = await pool.query(
-      `SELECT * FROM Classroom WHERE ClassroomId = $1`, [classroomId]
-    );
-    if (classRes.rows.length === 0) return res.redirect('/classroom');
-
-    // ดึงรายชื่อนักเรียนในห้อง
-    const studentRes = await pool.query(`
-      SELECT s.studentid, s.firstname, s.surname
-      FROM classroom_student cs
-      JOIN student s ON cs.studentid = s.studentid
-      WHERE cs.classroomid = $1
-      ORDER BY s.studentid ASC
-    `, [classroomId]);
-
-    res.render('liststudentinclass', {
-      classroom: classRes.rows[0],
-      students: studentRes.rows,
-      showNavbar: true,
-      currentUser: req.session.user,
-      currentRole: req.session.role
-    });
-  } catch (err) {
-    console.error(err);
-    res.redirect('/classroom');
-  }
-});
 
 router.post('/classroom/:classroomId/students/:studentId/remove', requireRole('teacher'), async (req, res) => {
   const { classroomId, studentId } = req.params;
@@ -842,47 +812,37 @@ router.get('/api/qr/:classroomId', requireRole('teacher'), async (req, res) => {
 });
 
 // นักเรียนสแกน token เพื่อเช็กชื่อ
+// นักเรียนสแกน → ตรวจ token แล้วบอกให้ไปหน้า confirm
 router.post('/api/scan', requireRole('student'), async (req, res) => {
-  const { token } = req.body;
-  const studentId = req.session.user.studentid;
-
   try {
-    const result = await pool.query(
-      `SELECT * FROM attendancetoken
-       WHERE token = $1 
-         AND is_used = FALSE 
-         AND created_at > NOW() - INTERVAL '20 seconds'`,
+    // 1) รับค่าที่สแกนได้
+    const raw = (req.body.token || '').toString().trim();
+
+    // 2) รองรับทั้งกรณีส่งมาเป็น URL หรือเป็น token เปล่า
+    const m = raw.match(/\/attendance\/confirm\/([A-Za-z0-9-]{10,})/i);
+    const token = m ? m[1] : raw;
+
+    // 3) ตรวจ token ยังใช้ได้ (ยังไม่ถูกใช้ + ยังไม่หมดอายุ)
+    const q = await pool.query(
+      `SELECT classroomid
+         FROM attendancetoken
+        WHERE token = $1
+          AND is_used = FALSE
+          AND created_at > NOW() - INTERVAL '90 seconds'`,
       [token]
     );
-    if (result.rows.length === 0) {
+
+    if (q.rowCount === 0) {
       return res.status(400).json({ error: 'Token หมดอายุหรือถูกใช้ไปแล้ว' });
     }
 
-    const classroomId = result.rows[0].classroomid;
-
-    await pool.query('UPDATE attendancetoken SET is_used = TRUE WHERE token = $1', [token]);
-
-    // บันทึกการเช็กชื่อ (upsert)
-    await pool.query(
-  `INSERT INTO attendance (studentid, classroomid, date, "time", status)
-   VALUES (
-     $1,
-     $2,
-     (NOW() AT TIME ZONE 'Asia/Bangkok')::date,
-     (NOW() AT TIME ZONE 'Asia/Bangkok')::time,
-     'Present'
-   )
-   ON CONFLICT (studentid, classroomid, date)
-   DO UPDATE SET
-     "time" = (NOW() AT TIME ZONE 'Asia/Bangkok')::time,
-     status = 'Present'`,
-  [studentId, classroomId]
-    );
-
-    res.json({ message: 'เช็กชื่อสำเร็จ', classroomId });
-  } catch (err) {
-    console.error('Error scanning QR token:', err);
-    res.status(500).json({ error: 'เกิดข้อผิดพลาดในการสแกน token' });
+    // ✅ ไม่บันทึก attendance ตรงนี้
+    // ✅ ไม่ mark is_used ตรงนี้
+    // แค่ส่ง URL ให้ฝั่ง client ไปหน้า confirm
+    return res.json({ redirect: `/attendance/confirm/${token}` });
+  } catch (e) {
+    console.error('api/scan redirect error:', e);
+    return res.status(500).json({ error: 'เกิดข้อผิดพลาด' });
   }
 });
 
@@ -939,52 +899,6 @@ router.get('/attendance/scan', requireRole('student'), (req, res) => {
   });
 });
 
-router.post('/attendance/checkin', async (req, res) => {
-  const { studentid, classroomid, token } = req.body;
-
-  try {
-    // ตรวจสอบ token ว่าใช้งานได้หรือยัง
-    const result = await pool.query(
-      'SELECT * FROM attendancetoken WHERE token = $1 AND classroomid = $2 AND is_used = false',
-      [token, classroomid]
-    );
-
-    if (result.rowCount === 0) {
-      return res.status(400).json({ message: 'Token ไม่ถูกต้อง หรือถูกใช้ไปแล้ว' });
-    }
-
-    // เพิ่มหรืออัปเดตข้อมูลการเข้าเรียน
-    
-await pool.query(
-  `INSERT INTO attendance (studentid, classroomid, date, "time", status)
-   VALUES (
-     $1,
-     $2,
-     (NOW() AT TIME ZONE 'Asia/Bangkok')::date,
-     (NOW() AT TIME ZONE 'Asia/Bangkok')::time,
-     'Present'
-   )
-   ON CONFLICT (studentid, classroomid, date)
-   DO UPDATE SET
-     "time" = (NOW() AT TIME ZONE 'Asia/Bangkok')::time,
-     status = 'Present'`,
-  [studentid, classroomid]
-);
-
-    // อัปเดต token เป็นใช้งานแล้ว
-    await pool.query(
-      'UPDATE attendancetoken SET is_used = true WHERE token = $1',
-      [token]
-    );
-
-    return res.json({ message: 'เช็กชื่อสำเร็จแล้ว' });
-
-  } catch (err) {
-    console.error('เกิดข้อผิดพลาด:', err);
-    return res.status(500).json({ message: 'เกิดข้อผิดพลาดในการเช็กชื่อ' });
-  }
-});
-
 // รายงานสถานะเข้าชั้น (ของครู) ตามวัน
 router.get('/classroom/:id/attendance', requireRole('teacher'), async (req, res) => {
   const classroomId = req.params.id;
@@ -1019,7 +933,7 @@ router.get('/classroom/:id/attendance', requireRole('teacher'), async (req, res)
   }
 });
 
-// เลือกวันที่ไปหน้า QR
+// ✅ เลือกวันที่ไปหน้า QR (เหลือครั้งเดียวพอ)
 router.get('/classroom/:id/select-date', async (req, res) => {
   const { id } = req.params;
   res.render('select_date', {
@@ -1035,76 +949,400 @@ router.post('/classroom/:id/generate-token', async (req, res) => {
   return res.redirect(`/qr/${classroomId}?date=${selectedDate}`);
 });
 
-// (ทางเลือก) สร้าง QR สำหรับลิงก์ยืนยัน token แบบ URL เต็ม
-router.get('/generate-qr/:classroomId', requireRole('teacher'), async (req, res) => {
-  try {
-    const classroomId = parseInt(req.params.classroomId, 10);
-    const token = uuidv4();
-    const baseUrl = `${req.protocol}://${req.get('host')}`;
-    const url = `${baseUrl}/attendance/confirm/${token}`;
-    const qrCode = await qr.toDataURL(url);
+// (ถ้า flow นี้ไม่ใช้ ให้ลบบล็อกนี้ได้)
+// ยืนยันการเช็กชื่อผ่านลิงก์ token (ตัวอย่าง mapping ให้ตรงสคีมา)
+// ========== หน้ายืนยันการเช็คชื่อ (นักเรียนกดจากลิงก์ใน QR) ==========
+// GET /attendance/confirm/:token — แสดงหน้ายืนยันหลังสแกน (ยังไม่บันทึก)
+router.get('/attendance/confirm/:token', requireRole('student'), async (req, res) => {
+  const { token } = req.params;
+  const student = req.session.user; // ต้องมี studentid ใน session
 
-    await pool.query(
-      'INSERT INTO attendance (token, classroomid, created_at) VALUES ($1, $2, NOW())',
-      [token, classroomId]
+  // กันเคส session หลุด
+  if (!student || !student.studentid) {
+    return res.redirect('/login');
+  }
+
+  try {
+    console.log('CONFIRM token =', token, ' studentid =', student.studentid);
+
+    // 1) หา token -> classroom (ขยายหน้าต่างเวลาได้ตามต้องการ: 20/60/90 วินาที)
+    const tok = await pool.query(
+      `
+      SELECT t.classroomid, c.classroomname
+      FROM attendancetoken t
+      JOIN classroom c ON c.classroomid = t.classroomid
+      WHERE t.token = $1
+        AND t.is_used = FALSE
+        AND t.created_at > NOW() - INTERVAL '20 seconds'
+      `,
+      [token]
     );
 
-    res.render('qr', {
-      qrCode,
-      qrUrl: url,
-      classroomId,
-      currentUser: req.session.user,
-      currentRole: req.session.role,
-      showNavbar: true
-    });
+    if (tok.rowCount === 0) {
+      return res.status(400).send('Token ไม่ถูกต้องหรือหมดอายุ');
+    }
 
+    const { classroomid, classroomname } = tok.rows[0];
+
+    // 2) นักเรียนต้องอยู่ในห้องนี้
+    const belong = await pool.query(
+      `SELECT 1 FROM classroom_student WHERE classroomid = $1 AND studentid = $2`,
+      [classroomid, student.studentid]
+    );
+
+    if (belong.rowCount === 0) {
+      // ส่งตัวแปร navbar ให้ EJS ด้วย กัน error currentUser/currentRole
+      return res.status(403).render('not_enrolled', {
+        classroomName: classroomname,
+        studentName: student.firstname
+          ? `${student.firstname} ${student.surname || ''}`.trim()
+          : (student.name || ''),
+        showNavbar: true,
+        currentUser: req.session.user,
+        currentRole: req.session.role
+      });
+    }
+
+    // 3) เตรียมข้อมูลแสดงตามภาพ 3.10
+    const now = new Date();
+    const dateTH = now.toLocaleDateString('th-TH');
+    const timeTH = now.toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit' });
+
+    // ✅ render หน้ายืนยัน (EJS ควรอ่านตัวแปรเหล่านี้)
+    return res.render('attendance_confirm', {
+      classroomName: classroomname,
+      date: dateTH,
+      time: timeTH,
+      studentId: student.studentid,
+      token, // ส่ง token ไว้ให้ฟอร์ม POST /attendance/confirm ใช้ตอนบันทึกจริง
+      showNavbar: true,
+      currentUser: req.session.user,
+      currentRole: req.session.role
+    });
   } catch (err) {
-    console.error('❌ Error generating QR:', err);
-    res.status(500).send('เกิดข้อผิดพลาดในการสร้าง QR');
+    console.error('confirm error:', err);
+    return res.status(500).send('เกิดข้อผิดพลาดในการโหลดหน้ายืนยัน');
   }
 });
 
-// (ถ้า flow นี้ไม่ใช้ ให้ลบบล็อกนี้ได้)
-// ยืนยันการเช็กชื่อผ่านลิงก์ token (ตัวอย่าง mapping ให้ตรงสคีมา)
-router.get('/attendance/confirm/:token', async (req, res) => {
-  const token = req.params.token;
+
+// ========== กดปุ่ม "ยืนยันการเช็คชื่อ" ==========
+router.post('/attendance/confirm', requireRole('student'), async (req, res) => {
+  const token = req.body.token;
   const student = req.session.user;
-  if (!student) return res.redirect('/login');
 
-  const result = await pool.query(
-    `SELECT a.attendanceid, c.classroomid, c.classroomname
-       FROM attendance a
-       JOIN classroom c ON a.classroomid = c.classroomid
-      WHERE a.token = $1`,
-    [token]
-  );
-  if (result.rowCount === 0) return res.status(404).send('ไม่พบข้อมูลการเช็คชื่อ');
+  try {
+    // 1) ตรวจ token อีกรอบ (กันเปลี่ยนฟอร์ม)
+    const tok = await pool.query(`
+      SELECT classroomid
+      FROM attendancetoken
+      WHERE token = $1 AND is_used = FALSE
+        AND created_at > NOW() - INTERVAL '20 seconds'
+    `, [token]);
+    if (tok.rowCount === 0) {
+      return res.status(400).send('Token ไม่ถูกต้องหรือหมดอายุ');
+    }
+    const classroomId = tok.rows[0].classroomid;
 
-  const { attendanceid, classroomid, classroomname } = result.rows[0];
+    // 2) กันเช็คชื่อซ้ำในวันเดียวกัน
+    const exist = await pool.query(
+      `SELECT 1 FROM attendance
+        WHERE classroomid = $1 AND studentid = $2 AND date = CURRENT_DATE`,
+      [classroomId, student.studentid]
+    );
+    if (exist.rowCount > 0) {
+      // ไม่ต้อง mark used เพื่อให้คนอื่นยังใช้ได้ภายในเวลา
+      return res.send('คุณได้เช็คชื่อไปแล้วในวันนี้');
+    }
 
-  const check = await pool.query(
-    `SELECT 1 FROM classroom_student
-      WHERE classroomid = $1 AND studentid = $2`,
-    [classroomid, student.studentid]
-  );
-  if (check.rowCount === 0) {
-    return res.render('not_enrolled', {
-      classroomName: classroomname,
-      studentName: (student.firstname || '') + ' ' + (student.surname || '')
-    });
+    // 3) บันทึกเช็คชื่อ
+    await pool.query(
+  `INSERT INTO attendance (studentid, classroomid, date, time, status)
+   VALUES ($1, $2, CURRENT_DATE, NOW(), 'Present')`,
+  [student.studentid, classroomId]
+);
+
+    // 4) ทำให้ token นี้ใช้แล้ว (กันยิงซ้ำ)
+    await pool.query(`UPDATE attendancetoken SET is_used = TRUE WHERE token = $1`, [token]);
+
+    return res.send('✅ เช็คชื่อสำเร็จ');
+  } catch (err) {
+    console.error('submit confirm error:', err);
+    return res.status(500).send('เกิดข้อผิดพลาดในการบันทึกการเช็คชื่อ');
   }
+});
 
-  const now = new Date();
-  const date = now.toLocaleDateString('th-TH');
-  const time = now.toLocaleTimeString('th-TH');
 
-  res.render('attendance_confirm', {
-    attendanceId: attendanceid,
-    classroom: { name: classroomname },
-    date,
-    time,
-    student
-  });
+// รายงานประวัติการเช็คชื่อรายวัน (ผู้สอน)
+router.get('/classroom/:id/history', requireRole('teacher'), async (req, res) => {
+  const classroomId = req.params.id;
+  const teacherId   = req.session.user.teacherid;
+  const selectedDate = (req.query.date || new Date().toISOString().slice(0,10)); // YYYY-MM-DD
+
+  // แปลง YYYY-MM-DD -> DD/MM/YYYY (ให้เหมือนในเอกสาร)
+  const [y, m, d] = selectedDate.split('-');
+  const displayDate = `${d}/${m}/${y}`;
+
+  try {
+    const classRes = await pool.query(
+      `SELECT classroomid, classroomname
+       FROM classroom
+       WHERE classroomid = $1 AND teacherid = $2`,
+      [classroomId, teacherId]
+    );
+    if (classRes.rows.length === 0) return res.status(403).send('คุณไม่มีสิทธิ์เข้าถึงชั้นเรียนนี้');
+
+    // ✅ เลือก firstname, surname แยกคอลัมน์ และใช้ a.time เป็นเวลาเช็คชื่อ
+    const detailsRes = await pool.query(`
+      SELECT
+        s.studentid,
+        s.firstname,
+        s.surname,
+        COALESCE(a.status, 'Absent') AS status,
+        TO_CHAR(a.time, 'HH24:MI')   AS checkin_time
+      FROM classroom_student cs
+      JOIN student s ON cs.studentid = s.studentid
+      LEFT JOIN attendance a
+        ON a.studentid = s.studentid
+       AND a.classroomid = cs.classroomid
+       AND a.date = $2
+      WHERE cs.classroomid = $1
+      ORDER BY s.studentid ASC
+    `, [classroomId, selectedDate]);
+
+    const totalStudents = detailsRes.rows.length;
+const presentCount  = detailsRes.rows.filter(r => r.status === 'Present').length;
+const absentCount   = totalStudents - presentCount;
+
+// 👉 ถ้าไม่มีใครมาเรียนเลย
+const hasAnyAttendance = presentCount > 0;
+
+res.render('teacher_history_by_date', {
+  classroom: classRes.rows[0],
+  selectedDate,
+  displayDate,
+  totalStudents,
+  presentCount,
+  absentCount,
+  students: detailsRes.rows,
+  hasAnyAttendance,       // << ส่งไปที่ EJS
+  showNavbar: true,
+  currentUser: req.session.user,
+  currentRole: req.session.role
+});
+
+  } catch (err) {
+    console.error('history error:', err);
+    res.status(500).send('เกิดข้อผิดพลาดในการโหลดรายงาน');
+  }
+});
+
+// คะแนนการเช็คชื่อ "ทั้งห้อง" (ฝั่งอาจารย์)
+router.get('/classroom/:id/attendance-scores', requireRole('teacher'), async (req, res) => {
+  const classroomId = req.params.id;
+  const teacherId   = req.session.user.teacherid;
+
+  try {
+    // 1) ตรวจสิทธิ์ห้องเรียน
+    const c = await pool.query(
+      `SELECT classroomid, classroomname, minattendancepercent
+         FROM classroom
+        WHERE classroomid = $1 AND teacherid = $2`,
+      [classroomId, teacherId]
+    );
+    if (c.rows.length === 0) return res.status(403).send('คุณไม่มีสิทธิ์เข้าถึงชั้นเรียนนี้');
+    const classroom = c.rows[0];
+    const minPercent = classroom.minattendancepercent || 0;
+
+    // 2) นับจำนวนคาบ/วัน ที่มีการเช็คชื่อในห้องนี้ทั้งหมด
+    const totalRes = await pool.query(
+      `SELECT COUNT(DISTINCT date)::int AS total_sessions
+         FROM attendance
+        WHERE classroomid = $1`,
+      [classroomId]
+    );
+    const totalSessions = totalRes.rows[0].total_sessions;
+
+    // 3) รวมสถิติของนักเรียนทุกคนในห้อง
+    //   - present_count / late_count / leave_count ต่อคน
+    const statsRes = await pool.query(`
+      SELECT
+        s.studentid,
+        s.firstname,
+        s.surname,
+        COUNT(a.*) FILTER (WHERE a.status = 'Present')::int AS present_count,
+        COUNT(a.*) FILTER (WHERE a.status = 'Late')::int    AS late_count,
+        COUNT(a.*) FILTER (WHERE a.status = 'Leave')::int   AS leave_count
+      FROM classroom_student cs
+      JOIN student s ON s.studentid = cs.studentid
+      LEFT JOIN attendance a
+        ON a.classroomid = cs.classroomid
+       AND a.studentid   = s.studentid
+      WHERE cs.classroomid = $1
+      GROUP BY s.studentid, s.firstname, s.surname
+      ORDER BY s.studentid
+    `, [classroomId]);
+
+    // 4) คำนวณ absent + เปอร์เซ็นต์ + ผลผ่าน/ไม่ผ่าน ต่อคน
+    const rows = statsRes.rows.map(r => {
+      const present = r.present_count || 0;
+      const late    = r.late_count    || 0;
+      const leave   = r.leave_count   || 0;
+      const absent  = Math.max(0, totalSessions - (present + late + leave));
+      const percent = totalSessions > 0 ? Math.round((present / totalSessions) * 100) : 0; // นับเฉพาะ Present
+      const isPass  = percent >= minPercent;
+
+      return {
+        studentid: r.studentid,
+        firstname: r.firstname,
+        surname:   r.surname,
+        present, absent, percent, isPass
+      };
+    });
+
+    res.render('teacher_classroom_scores', {
+      classroom,
+      minPercent,
+      totalSessions,
+      scores: rows,
+      hasAnySession: totalSessions > 0,
+      showNavbar: true,
+      currentUser: req.session.user,
+      currentRole: req.session.role
+    });
+  } catch (err) {
+    console.error('scores error:', err);
+    res.status(500).send('เกิดข้อผิดพลาดในการโหลดคะแนนการเช็คชื่อ');
+  }
+});
+
+// คะแนนการเช็คชื่อของ "นักเรียนที่ล็อกอินอยู่" ในห้องนี้
+router.get('/student/classroom/:id/attendance-score', requireRole('student'), async (req, res) => {
+  const classroomId = req.params.id;
+  const studentId   = req.session.user.studentid;
+
+  try {
+    // นักเรียนต้องอยู่ในห้องนี้
+    const belong = await pool.query(
+      `SELECT 1 FROM classroom_student WHERE classroomid = $1 AND studentid = $2`,
+      [classroomId, studentId]
+    );
+    if (belong.rowCount === 0) return res.status(403).send('คุณไม่ได้อยู่ในชั้นเรียนนี้');
+
+    // ข้อมูลห้อง
+    const cls = await pool.query(
+      `SELECT classroomid, classroomname, minattendancepercent
+         FROM classroom
+        WHERE classroomid = $1`,
+      [classroomId]
+    );
+    if (cls.rowCount === 0) return res.redirect('/classroom');
+    const classroom  = cls.rows[0];
+    const minPercent = classroom.minattendancepercent || 0;
+
+    // จำนวนคาบที่มีการเช็คชื่อทั้งหมดของห้องนี้
+    const totalRes = await pool.query(
+      `SELECT COUNT(DISTINCT date)::int AS total_sessions
+         FROM attendance
+        WHERE classroomid = $1`,
+      [classroomId]
+    );
+    const totalSessions = totalRes.rows[0].total_sessions;
+
+    // นับสถิติของนักเรียนคนนี้
+    const presentRes = await pool.query(
+      `SELECT COUNT(*)::int AS c
+         FROM attendance
+        WHERE classroomid = $1 AND studentid = $2 AND status = 'Present'`,
+      [classroomId, studentId]
+    );
+    const lateRes = await pool.query(
+      `SELECT COUNT(*)::int AS c
+         FROM attendance
+        WHERE classroomid = $1 AND studentid = $2 AND status = 'Late'`,
+      [classroomId, studentId]
+    );
+    const leaveRes = await pool.query(
+      `SELECT COUNT(*)::int AS c
+         FROM attendance
+        WHERE classroomid = $1 AND studentid = $2 AND status = 'Leave'`,
+      [classroomId, studentId]
+    );
+
+    const present = presentRes.rows[0].c;
+    const late    = lateRes.rows[0].c;
+    const leave   = leaveRes.rows[0].c;
+
+    const absent  = Math.max(0, totalSessions - (present + late + leave));
+
+    // % เข้าเรียน (นับเฉพาะ Present; ถ้าจะนับสาย/ลาเป็นมาให้เปลี่ยนเป็น present+late+leave)
+    const percent = totalSessions > 0 ? Math.round((present / totalSessions) * 100) : 0;
+    const isPass  = percent >= minPercent;
+
+    res.render('student_attendance_score', {
+      classroom,
+      totalSessions,
+      present,
+      absent,
+      percent,
+      minPercent,
+      isPass,
+      hasAnySession: totalSessions > 0,
+      showNavbar: true,
+      currentUser: req.session.user,
+      currentRole: req.session.role
+    });
+  } catch (err) {
+    console.error('student self-score error:', err);
+    res.status(500).send('เกิดข้อผิดพลาดในการโหลดข้อมูลคะแนน');
+  }
+});
+
+// ประวัติการเช็คชื่อของ "นักเรียนที่ล็อกอินอยู่" ในห้องนี้
+router.get('/student/classroom/:id/attendance-history', requireRole('student'), async (req, res) => {
+  const classroomId = req.params.id;
+  const studentId   = req.session.user.studentid;
+
+  try {
+    // ต้องเป็นนักเรียนในห้องนี้
+    const belong = await pool.query(
+      `SELECT 1 FROM classroom_student WHERE classroomid = $1 AND studentid = $2`,
+      [classroomId, studentId]
+    );
+    if (belong.rowCount === 0) return res.status(403).send('คุณไม่ได้อยู่ในชั้นเรียนนี้');
+
+    // ข้อมูลห้อง
+    const cls = await pool.query(
+      `SELECT classroomid, classroomname FROM classroom WHERE classroomid = $1`,
+      [classroomId]
+    );
+    if (cls.rowCount === 0) return res.redirect('/classroom');
+    const classroom = cls.rows[0];
+
+    // ดึงรายการเช็คชื่อเรียงใหม่ล่าสุดก่อน
+    const rec = await pool.query(
+      `SELECT 
+         TO_CHAR(date, 'DD/MM/YYYY') AS display_date,
+         TO_CHAR(time, 'HH24:MI')    AS display_time,
+         status
+       FROM attendance
+       WHERE classroomid = $1 AND studentid = $2
+       ORDER BY date DESC, time DESC`,
+      [classroomId, studentId]
+    );
+
+    res.render('student_attendance_history', {
+      classroom,                // ใช้ classroom.classroomname แสดงใต้หัวรายงาน
+      records: rec.rows,        // [{display_date, display_time, status}, ...]
+      hasRecords: rec.rowCount > 0,
+      showNavbar: true,
+      currentUser: req.session.user,
+      currentRole: req.session.role
+    });
+  } catch (err) {
+    console.error('student history error:', err);
+    res.status(500).send('เกิดข้อผิดพลาดในการโหลดประวัติการเช็คชื่อ');
+  }
 });
 
 module.exports = router;
