@@ -9,13 +9,14 @@
 </head>
 <body>
 
-  <% if (showNavbar) { %>
-    <%- include('partials/navbar', { currentUser: currentUser, currentRole: currentRole }) %>
-  <% } %>
+  <% if (typeof showNavbar !== 'undefined' && showNavbar && typeof currentUser !== 'undefined') { %>
+  <%- include('partials/navbar', { currentUser: currentUser, currentRole: currentRole }) %>
+<% } %>
    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0-alpha1/dist/js/bootstrap.bundle.min.js"></script>
    <!-- views/not_enrolled.ejs -->
-<h2>ไม่สามารถเช็คชื่อได้</h2>
-<p>คุณ <strong><%= studentName %></strong> ไม่ได้อยู่ในชั้นเรียน <strong><%= classroomName %></strong></p>
-<a href="/">กลับหน้าหลัก</a>
+<h4 class="text-danger">คุณไม่ได้อยู่ในชั้นเรียนนี้</h4>
+<p>ชั้นเรียน: <strong><%= classroomName %></strong></p>
+<p>ผู้ใช้: <strong><%= studentName %></strong></p>
+<a href="/classroom" class="btn btn-secondary mt-3">กลับหน้าห้องเรียนของฉัน</a>
 </body>
 </html>
