@@ -62,113 +62,106 @@
   </div>
 
   <script>
-  // ======= ค่าจาก server (ประกาศครั้งเดียว) =======
-  const classroomId  = "<%= classroomId %>";
-  const selectedDate = "<%= selectedDate %>";
+    // ======= ค่าจาก server (ประกาศครั้งเดียว) =======
+    const classroomId  = "<%= classroomId %>";
+    const selectedDate = "<%= selectedDate %>";
 
-  const timerElement = document.getElementById('timer');
-  const qrContainer  = document.getElementById('qrcode');
+    const timerElement = document.getElementById('timer');
+    const qrContainer  = document.getElementById('qrcode');
+    const debugA       = document.getElementById('debug-url');
 
-  let expiresAtMs   = 0;     // เวลา token หมดอายุ (ms)
-  let currentToken  = null;  // token ปัจจุบัน
+    const TTL_FALLBACK = 10; // เผื่อกรณี backend ไม่ส่ง ttl
 
-  // วาด QR จาก URL
-  function drawQR(url) {
-    qrContainer.innerHTML = '';
-    QRCode.toCanvas(url, { width: 220 }, (err, canvas) => {
-      if (err) return console.error(err);
-      qrContainer.appendChild(canvas);
-    });
-  }
+    let expiresAtMs  = 0;    // เวลา token หมดอายุ (ms)
+    let currentToken = null; // token ปัจจุบัน
 
-  // อัปเดตตัวเลขนับถอยหลังจากเวลาจริง
-  function renderCountdown() {
-    if (!expiresAtMs) return;
-    const diffMs  = expiresAtMs - Date.now();
-    const secLeft = Math.max(0, Math.ceil(diffMs / 1000));
-    timerElement.textContent = `เหลือเวลา ${secLeft} วินาที`;
-    if (secLeft <= 0) {
-      getToken(true); // หมดเวลา → ขอ token ใหม่ทันที
+    function drawQR(url) {
+      qrContainer.innerHTML = '';
+      QRCode.toCanvas(url, { width: 220 }, (err, canvas) => {
+        if (err) return console.error(err);
+        qrContainer.appendChild(canvas);
+      });
     }
-  }
 
-  // ดึงโทเคนจากเซิร์ฟเวอร์
-  async function getToken(force = false) {
-    try {
-      const res  = await fetch(`/qr/${classroomId}/token${force ? '?force=1' : ''}`, { cache: 'no-store' });
-      const data = await res.json();
-
-      currentToken = data.token;
-
-      // วาด QR + อัปเดตลิงก์ดีบัก
-      drawQR(data.url);
-      const debugA = document.getElementById('debug-url');
-      debugA.textContent = data.url;
-      debugA.href = data.url;
-
-      // เซ็ตเวลาหมดอายุให้ตรงจากเซิร์ฟเวอร์ ถ้าไม่มีให้ fallback 10 วิ
-      if (data.expiresAt) {
-        expiresAtMs = new Date(data.expiresAt).getTime();
-      } else {
-        expiresAtMs = Date.now() + 10_000;
+    function renderCountdown() {
+      if (!expiresAtMs) return;
+      const diffMs  = expiresAtMs - Date.now();
+      const secLeft = Math.max(0, Math.ceil(diffMs / 1000));
+      timerElement.textContent = `เหลือเวลา ${secLeft} วินาที`;
+      if (secLeft <= 0) {
+        getToken(true); // หมดเวลา → ขอ token ใหม่ทันที
       }
-
-      renderCountdown(); // อัปเดตรอบแรกทันที
-    } catch (err) {
-      console.error('โหลด token ผิดพลาด:', err);
-      timerElement.textContent = 'โหลดโค้ดไม่สำเร็จ';
     }
-  }
 
-  // เช็คสถานะโทเคนทุก 1 วิ (ถ้ามีคนยืนยันแล้วให้รีเฟรชทันที)
-  async function pollStatus() {
-    if (!currentToken) return;
-    try {
-      const res  = await fetch(`/api/qr-status/${classroomId}?token=${encodeURIComponent(currentToken)}`, { cache: 'no-store' });
-      const data = await res.json();
-      if (data.is_used === true || data.exists === false) {
-        await getToken(true); // ถูกใช้/หมดอายุ → ดึงใหม่
+    // ดึงโทเคนจากเซิร์ฟเวอร์ (backend ส่ง {token,url,ttl})
+    async function getToken(force = false) {
+      try {
+        const res  = await fetch(`/qr/${classroomId}/token${force ? '?force=1' : ''}`, { cache: 'no-store' });
+        const data = await res.json();
+
+        currentToken = data.token;
+        drawQR(data.url);
+        debugA.textContent = data.url;
+        debugA.href = data.url;
+
+        const ttlSec = Number(data.ttl) || TTL_FALLBACK;
+        expiresAtMs  = Date.now() + ttlSec * 1000; // ⬅️ คำนวณจาก ttl ตรง ๆ ทุกครั้ง
+        renderCountdown(); // อัปเดตรอบแรกทันที
+      } catch (err) {
+        console.error('โหลด token ผิดพลาด:', err);
+        timerElement.textContent = 'โหลดโค้ดไม่สำเร็จ';
       }
-    } catch (e) {
-      console.warn('qr-status error:', e);
     }
-  }
 
-  // รีเฟรชตารางสถานะนักเรียนทุก 5 วิ
-  async function refreshAttendanceTable() {
-    try {
-      const res  = await fetch(`/api/classroom/${classroomId}/attendance?date=${encodeURIComponent(selectedDate)}`, { cache: 'no-store' });
-      const data = await res.json();
-      if (!data || !data.students) return;
-
-      const tbody = document.getElementById('student-tbody');
-      const rows  = data.students.map(s => {
-        const isPresent  = s.status === 'Present';
-        const statusHtml = isPresent
-          ? '<span class="text-success fw-bold">มาเรียน</span>'
-          : '<span class="text-danger fw-bold">ขาดเรียน</span>';
-        const time = s.checkin_time || '-';
-        return `
-          <tr>
-            <td>${s.studentid}</td>
-            <td>${s.fullname}</td>
-            <td>${statusHtml}</td>
-            <td>${time}</td>
-          </tr>
-        `;
-      }).join('');
-      tbody.innerHTML = rows;
-    } catch (e) {
-      console.error('refreshAttendanceTable error:', e);
+    // เช็คสถานะโทเคนทุก 1 วิ (ถ้ามีคนยืนยันแล้วให้รีเฟรชทันที)
+    async function pollStatus() {
+      if (!currentToken) return;
+      try {
+        const res  = await fetch(`/api/qr-status/${classroomId}?token=${encodeURIComponent(currentToken)}`, { cache: 'no-store' });
+        const data = await res.json();
+        if (data.is_used === true || data.exists === false) {
+          await getToken(true); // ถูกใช้/หมดอายุ → ดึงใหม่
+        }
+      } catch (e) {
+        console.warn('qr-status error:', e);
+      }
     }
-  }
 
-  // เริ่มทำงาน
-  getToken(true);
-  setInterval(renderCountdown, 1000);
-  setInterval(pollStatus, 1000);
-  refreshAttendanceTable();
-  setInterval(refreshAttendanceTable, 5000);
+    // รีเฟรชตารางสถานะนักเรียนทุก 5 วิ
+    async function refreshAttendanceTable() {
+      try {
+        const res  = await fetch(`/api/classroom/${classroomId}/attendance?date=${encodeURIComponent(selectedDate)}`, { cache: 'no-store' });
+        const data = await res.json();
+        if (!data || !data.students) return;
+
+        const tbody = document.getElementById('student-tbody');
+        const rows  = data.students.map(s => {
+          const isPresent  = s.status === 'Present';
+          const statusHtml = isPresent
+            ? '<span class="text-success fw-bold">มาเรียน</span>'
+            : '<span class="text-danger fw-bold">ขาดเรียน</span>';
+          const time = s.checkin_time || '-';
+          return `
+            <tr>
+              <td>${s.studentid}</td>
+              <td>${s.fullname}</td>
+              <td>${statusHtml}</td>
+              <td>${time}</td>
+            </tr>
+          `;
+        }).join('');
+        tbody.innerHTML = rows;
+      } catch (e) {
+        console.error('refreshAttendanceTable error:', e);
+      }
+    }
+
+    // เริ่มทำงาน
+    getToken(true);
+    setInterval(renderCountdown, 1000);
+    setInterval(pollStatus, 1000);
+    refreshAttendanceTable();
+    setInterval(refreshAttendanceTable, 5000);
   </script>
 
   <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0-alpha1/dist/js/bootstrap.bundle.min.js"></script>

@@ -791,26 +791,19 @@ router.get('/qr/:id/token', requireRole('teacher'), async (req, res) => {
   const classroomId = parseInt(req.params.id, 10);
   const force = String(req.query.force || '').trim() === '1';
 
-  // เปลี่ยนค่า TTL ได้ที่นี่ (เช่น 10 หรือ 20 วินาที)
-  const TTL_SECONDS = 10;
-
   try {
     let row;
 
     if (!force) {
       const q = await pool.query(`
-        SELECT
-          token,
-          created_at,
-          (created_at + ($2 || ' seconds')::interval) AS expires_at
+        SELECT token, created_at
         FROM attendancetoken
         WHERE classroomid = $1
           AND is_used = FALSE
           AND created_at > NOW() - ($2 || ' seconds')::interval
         ORDER BY created_at DESC
         LIMIT 1
-      `, [classroomId, TTL_SECONDS]);
-
+      `, [classroomId, TOKEN_TTL_SECONDS]);
       if (q.rowCount > 0) row = q.rows[0];
     }
 
@@ -819,11 +812,8 @@ router.get('/qr/:id/token', requireRole('teacher'), async (req, res) => {
       const ins = await pool.query(`
         INSERT INTO attendancetoken (token, classroomid, created_at, is_used)
         VALUES ($1, $2, NOW(), FALSE)
-        RETURNING
-          token,
-          created_at,
-          (created_at + ($3 || ' seconds')::interval) AS expires_at
-      `, [token, classroomId, TTL_SECONDS]);
+        RETURNING token
+      `, [token, classroomId]);
       row = ins.rows[0];
     }
 
@@ -833,8 +823,7 @@ router.get('/qr/:id/token', requireRole('teacher'), async (req, res) => {
     return res.json({
       token: row.token,
       url,
-      createdAt: row.created_at,  // timestamptz/string จาก PG
-      expiresAt: row.expires_at   // timestamptz/string จาก PG
+      ttl: TOKEN_TTL_SECONDS   // 👈 ฝั่งหน้าใช้ตั้งหมดอายุ = Date.now()+ttl*1000
     });
   } catch (e) {
     console.error('qr token error:', e);
@@ -849,12 +838,17 @@ router.get('/api/qr-status/:classroomId', requireRole('teacher'), async (req, re
   const token = (req.query.token || '').toString().trim();
 
   try {
-    const r = await pool.query(
-      'SELECT is_used FROM attendancetoken WHERE classroomid = $1 AND token = $2',
-      [classroomId, token]
-    );
+    const r = await pool.query(`
+      SELECT is_used
+      FROM attendancetoken
+      WHERE classroomid = $1
+        AND token = $2
+        AND created_at > NOW() - ($3 || ' seconds')::interval
+    `, [classroomId, token, TOKEN_TTL_SECONDS]);
+
     if (r.rowCount === 0) {
-      return res.json({ exists: false, is_used: true }); // หมดอายุ/ถูกลบ → ถือว่าใช้แล้ว
+      // ไม่พบ/หมดอายุ → ปฏิบัติเหมือนถูกใช้ไป
+      return res.json({ exists: false, is_used: true });
     }
     return res.json({ exists: true, is_used: r.rows[0].is_used === true });
   } catch (e) {
@@ -907,14 +901,14 @@ router.post('/api/scan', requireRole('student'), async (req, res) => {
     const m = raw.match(/\/attendance\/confirm\/([A-Za-z0-9-]{10,})/i);
     const token = m ? m[1] : raw;
 
-    const q = await pool.query(
-      `SELECT classroomid
-         FROM attendancetoken
-        WHERE token = $1
-          AND is_used = FALSE
-          AND created_at > NOW() - INTERVAL '10 seconds'`,
-      [token]
-    );
+    const q = await pool.query(`
+      SELECT classroomid
+      FROM attendancetoken
+      WHERE token = $1
+        AND is_used = FALSE
+        AND created_at > NOW() - ($2 || ' seconds')::interval
+    `, [token, TOKEN_TTL_SECONDS]);
+
     if (q.rowCount === 0) {
       return res.status(400).json({ error: 'Token หมดอายุหรือถูกใช้ไปแล้ว' });
     }
@@ -933,7 +927,6 @@ router.get('/scan', requireRole('student'), (req, res) => {
     showNavbar: true
   });
 });
-
 router.get('/attendance/scan', requireRole('student'), (req, res) => {
   res.render('scan', {
     currentUser: req.session.user,
@@ -941,7 +934,6 @@ router.get('/attendance/scan', requireRole('student'), (req, res) => {
     showNavbar: true
   });
 });
-
 router.get('/api/classroom/:id/attendance', requireRole('teacher'), async (req, res) => {
   const classroomId = req.params.id;
   const selectedDate = req.query.date || new Date().toISOString().split('T')[0];
@@ -992,43 +984,28 @@ router.post('/classroom/:id/generate-token', async (req, res) => {
 // GET /attendance/confirm/:token — แสดงหน้ายืนยันหลังสแกน (ยังไม่บันทึก)
 router.get('/attendance/confirm/:token', requireRole('student'), async (req, res) => {
   const { token } = req.params;
-  const student = req.session.user; // ต้องมี studentid ใน session
-
-  // กันเคส session หลุด
-  if (!student || !student.studentid) {
-    return res.redirect('/login');
-  }
+  const student = req.session.user;
+  if (!student || !student.studentid) return res.redirect('/login');
 
   try {
-    console.log('CONFIRM token =', token, ' studentid =', student.studentid);
-
-    // 1) หา token -> classroom (ขยายหน้าต่างเวลาได้ตามต้องการ: 20/60/90 วินาที)
-    const tok = await pool.query(
-      `
+    const tok = await pool.query(`
       SELECT t.classroomid, c.classroomname
       FROM attendancetoken t
       JOIN classroom c ON c.classroomid = t.classroomid
       WHERE t.token = $1
         AND t.is_used = FALSE
-        AND t.created_at > NOW() - INTERVAL '10 seconds'
-      `,
-      [token]
-    );
+        AND t.created_at > NOW() - ($2 || ' seconds')::interval
+    `, [token, TOKEN_TTL_SECONDS]);
 
-    if (tok.rowCount === 0) {
-      return res.status(400).send('Token ไม่ถูกต้องหรือหมดอายุ');
-    }
+    if (tok.rowCount === 0) return res.status(400).send('Token ไม่ถูกต้องหรือหมดอายุ');
 
     const { classroomid, classroomname } = tok.rows[0];
 
-    // 2) นักเรียนต้องอยู่ในห้องนี้
     const belong = await pool.query(
       `SELECT 1 FROM classroom_student WHERE classroomid = $1 AND studentid = $2`,
       [classroomid, student.studentid]
     );
-
     if (belong.rowCount === 0) {
-      // ส่งตัวแปร navbar ให้ EJS ด้วย กัน error currentUser/currentRole
       return res.status(403).render('not_enrolled', {
         classroomName: classroomname,
         studentName: student.firstname
@@ -1040,18 +1017,16 @@ router.get('/attendance/confirm/:token', requireRole('student'), async (req, res
       });
     }
 
-    // 3) เตรียมข้อมูลแสดงตามภาพ 3.10
     const now = new Date();
     const dateTH = now.toLocaleDateString('th-TH');
     const timeTH = now.toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit' });
 
-    // ✅ render หน้ายืนยัน (EJS ควรอ่านตัวแปรเหล่านี้)
     return res.render('attendance_confirm', {
       classroomName: classroomname,
       date: dateTH,
       time: timeTH,
       studentId: student.studentid,
-      token, // ส่ง token ไว้ให้ฟอร์ม POST /attendance/confirm ใช้ตอนบันทึกจริง
+      token,
       showNavbar: true,
       currentUser: req.session.user,
       currentRole: req.session.role
@@ -1062,80 +1037,58 @@ router.get('/attendance/confirm/:token', requireRole('student'), async (req, res
   }
 });
 
-
 // ========== กดปุ่ม "ยืนยันการเช็คชื่อ" ==========
 // ป้องกันเช็คซ้ำในวันเดียวกัน + ไม่กิน token ถ้าเด็กคนนั้นเช็คไปแล้ว
 router.post('/attendance/confirm', requireRole('student'), async (req, res) => {
   const token = (req.body.token || '').toString().trim();
   const student = req.session.user;
 
-  // TTL ต้องสอดคล้องกันทุกที่ (ตอนนี้คุณตั้งไว้ 12 วินาที)
-  const TTL_SECONDS = 10;
-
   try {
-    // 1) หา classroom จาก token (ยังไม่ lock / ยังไม่ mark used)
-    const t = await pool.query(
-      `SELECT classroomid
-         FROM attendancetoken
-        WHERE token = $1
-          AND is_used = FALSE
-          AND created_at > NOW() - ($2 || ' seconds')::interval`,
-      [token, TTL_SECONDS]
-    );
-    if (t.rowCount === 0) {
-      return res.status(400).send('Token ไม่ถูกต้องหรือหมดอายุ');
-    }
+    const t = await pool.query(`
+      SELECT classroomid
+      FROM attendancetoken
+      WHERE token=$1 AND is_used=FALSE
+        AND created_at > NOW() - ($2 || ' seconds')::interval
+    `, [token, TOKEN_TTL_SECONDS]);
+    if (t.rowCount === 0) return res.status(400).send('Token ไม่ถูกต้องหรือหมดอายุ');
+
     const classroomId = t.rows[0].classroomid;
 
-    // 2) เด็กต้องอยู่ในห้องนี้
     const belong = await pool.query(
-      `SELECT 1 FROM classroom_student WHERE classroomid = $1 AND studentid = $2`,
+      `SELECT 1 FROM classroom_student WHERE classroomid=$1 AND studentid=$2`,
       [classroomId, student.studentid]
     );
     if (belong.rowCount === 0) {
       return res.status(403).render('not_enrolled', {
         classroomName: '',
         studentName: `${student.firstname} ${student.surname}`,
-        showNavbar: true,
-        currentUser: req.session.user,
-        currentRole: req.session.role
+        showNavbar: true, currentUser: req.session.user, currentRole: req.session.role
       });
     }
 
-    // 3) กันเช็คซ้ำในวันเดียวกัน (สำคัญ: อย่ากิน token ถ้าเช็คซ้ำ)
-    const exist = await pool.query(
-      `SELECT 1
-         FROM attendance
-        WHERE classroomid = $1
-          AND studentid   = $2
-          AND date        = CURRENT_DATE`,
-      [classroomId, student.studentid]
-    );
+    // กันเช็คซ้ำในวันเดียวกัน (อย่ากิน token ถ้าเช็คไปแล้ว)
+    const exist = await pool.query(`
+      SELECT 1 FROM attendance
+      WHERE classroomid=$1 AND studentid=$2 AND date=CURRENT_DATE
+    `, [classroomId, student.studentid]);
     if (exist.rowCount > 0) {
-      // ไม่ lock / ไม่ mark used เพื่อให้เพื่อนคนอื่นยังใช้ token ได้ตามเวลา
       return res.status(409).send('คุณได้เช็คชื่อไปแล้วในวันนี้');
     }
 
-    // 4) ล็อกโทเคนแบบอะตอมมิก (กิน token คนแรกเท่านั้น)
-    const lock = await pool.query(
-      `UPDATE attendancetoken
-          SET is_used = TRUE
-        WHERE token = $1
-          AND is_used = FALSE
-          AND created_at > NOW() - ($2 || ' seconds')::interval
-        RETURNING token`,
-      [token, TTL_SECONDS]
-    );
-    if (lock.rowCount === 0) {
-      return res.status(400).send('Token ถูกใช้ไปแล้วหรือหมดอายุ');
-    }
+    // ล็อก token คนแรกเท่านั้น
+    const lock = await pool.query(`
+      UPDATE attendancetoken
+         SET is_used=TRUE
+       WHERE token=$1 AND is_used=FALSE
+         AND created_at > NOW() - ($2 || ' seconds')::interval
+       RETURNING token
+    `, [token, TOKEN_TTL_SECONDS]);
+    if (lock.rowCount === 0) return res.status(400).send('Token ถูกใช้ไปแล้วหรือหมดอายุ');
 
-    // 5) บันทึกเช็คชื่อ (ถ้ามี unique constraint จะกันซ้ำที่ DB อีกชั้น)
-    await pool.query(
-      `INSERT INTO attendance (studentid, classroomid, date, "time", status)
-       VALUES ($1, $2, CURRENT_DATE, NOW()::time, 'Present')`,
-      [student.studentid, classroomId]
-    );
+    await pool.query(`
+      INSERT INTO attendance (studentid, classroomid, date, "time", status)
+      VALUES ($1,$2,CURRENT_DATE,NOW()::time,'Present')
+    `, [student.studentid, classroomId]);
 
     return res.send('✅ เช็คชื่อสำเร็จ');
   } catch (err) {
