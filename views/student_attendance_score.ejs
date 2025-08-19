@@ -6,10 +6,7 @@
   <title>คะแนนการเช็คชื่อของฉัน</title>
   <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0-alpha1/dist/css/bootstrap.min.css" rel="stylesheet">
   <style>
-    .report-box { border: 2px solid #333; padding: 20px; max-width: 720px; margin: 0 auto; }
-    .report-title { font-weight: 700; text-align: center; margin-bottom: 12px; }
-    .line { margin-bottom: .35rem; text-align: center; }
-    .label { font-weight: 600; }
+    .stat-list .label { font-weight: 600; }
   </style>
 </head>
 <body>
@@ -17,34 +14,41 @@
     <%- include('partials/navbar', { currentUser, currentRole }) %>
   <% } %>
 
-  <div class="container my-4">
-    <div class="report-box">
-      <div class="report-title">รายงาน ข้อมูลคะแนนการเช็คชื่อเข้าชั้นเรียน</div>
-
-      <p class="line"><span class="label">ชื่อชั้นเรียน</span> &nbsp; <%= classroom.classroomname %></p>
+  <div class="container mt-5 pt-4 mb-5">
+    <div class="mx-auto bg-white shadow-sm rounded-3 p-4" style="max-width:720px;">
+      <h2 class="text-center mb-2">รายงาน ข้อมูลคะแนนการเช็คชื่อเข้าชั้นเรียน</h2>
+      <div class="text-center text-muted mb-3">
+        ชื่อชั้นเรียน <span class="fw-semibold text-dark"><%= classroom.classroomname %></span>
+      </div>
 
       <% if (!hasAnySession) { %>
-        <div class="alert alert-info text-center my-3">
-          ยังไม่มีการเช็คชื่อของชั้นเรียนนี้
-        </div>
+        <div class="alert alert-info text-center my-3">ยังไม่มีการเช็คชื่อของชั้นเรียนนี้</div>
       <% } else { %>
-        <p class="line"><span class="label">จำนวนเข้าเรียน</span> &nbsp; <%= present %></p>
-        <p class="line"><span class="label">จำนวนขาดเรียน</span> &nbsp; <%= absent %></p>
-        <p class="line"><span class="label">เปอร์เซ็นต์การเข้าเรียน</span> &nbsp; <%= percent %>%</p>
-        <p class="line"><span class="label">เปอร์เซ็นต์การเข้าเรียนขั้นต่ำ</span> &nbsp; <%= minPercent %>%</p>
-        <p class="line">
-          <span class="label">สถานะการเข้าเรียน</span> &nbsp;
-          <% if (isPass) { %>
-            <span class="text-success fw-bold">ผ่านเกณฑ์</span>
-          <% } else { %>
-            <span class="text-danger fw-bold">ไม่ผ่านเกณฑ์</span>
-          <% } %>
-        </p>
+        <ul class="list-group list-group-flush stat-list">
+          <li class="list-group-item d-flex justify-content-between">
+            <span class="label">จำนวนเข้าเรียน</span><span class="fw-semibold"><%= present %></span>
+          </li>
+          <li class="list-group-item d-flex justify-content-between">
+            <span class="label">จำนวนขาดเรียน</span><span class="fw-semibold"><%= absent %></span>
+          </li>
+          <li class="list-group-item d-flex justify-content-between">
+            <span class="label">เปอร์เซ็นต์การเข้าเรียน</span><span class="fw-semibold"><%= percent %>%</span>
+          </li>
+          <li class="list-group-item d-flex justify-content-between">
+            <span class="label">เปอร์เซ็นต์การเข้าเรียนขั้นต่ำ</span><span class="fw-semibold"><%= minPercent %>%</span>
+          </li>
+          <li class="list-group-item d-flex justify-content-between align-items-center">
+            <span class="label">สถานะการเข้าเรียน</span>
+            <span class="badge rounded-pill px-3 py-2 <%= isPass ? 'text-bg-success' : 'text-bg-danger' %>">
+              <%= isPass ? 'ผ่านเกณฑ์' : 'ไม่ผ่านเกณฑ์' %>
+            </span>
+          </li>
+        </ul>
       <% } %>
-    </div>
 
-    <div class="text-center mt-3">
-      <a class="btn btn-secondary" href="/classroom/view/<%= classroom.classroomid %>">ย้อนกลับ</a>
+      <div class="text-center mt-4">
+        <a class="btn btn-secondary " href="/classroom/view/<%= classroom.classroomid %>">ย้อนกลับ</a>
+      </div>
     </div>
   </div>
 

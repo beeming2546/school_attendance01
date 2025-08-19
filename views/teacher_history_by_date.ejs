@@ -11,11 +11,13 @@
     <%- include('partials/navbar', { currentUser, currentRole }) %>
   <% } %>
 
-  <div class="container my-4">
-    <h3 class="mb-3 text-center">รายงานประวัติการเช็คชื่อของผู้เรียน (รายวัน)</h3>
+  <div class="container mt-5 pt-4 mb-4">
+    <!-- หัวข้อหลัก -->
+    <h2 class="text-center mb-4">รายงาน ประวัติการเช็คชื่อของผู้เรียน (รายวัน)</h2>
 
     <!-- ค้นหาวันที่ -->
-    <form class="row g-2 mb-4" method="get" action="/classroom/<%= classroom.classroomid %>/history">
+    <form class="row g-2 mb-4 justify-content-center align-items-center"
+          method="get" action="/classroom/<%= classroom.classroomid %>/history">
       <div class="col-auto">
         <label class="col-form-label">ค้นหาวันที่:</label>
       </div>
@@ -29,48 +31,58 @@
         <a class="btn btn-secondary" href="/classroom/view/<%= classroom.classroomid %>">ย้อนกลับ</a>
       </div>
     </form>
-<% if (!hasAnyAttendance) { %>
-  <div class="alert alert-info text-center my-4">
-    ไม่มีผลการเช็คชื่อในวันที่ <%= displayDate %>
-  </div>
-<% } else { %>
-    <div class="border p-3 mb-4">
-  <p class="mb-1"><strong>ชื่อชั้นเรียน:</strong> <%= classroom.classroomname %></p>
-  <p class="mb-1"><strong>วันที่:</strong> <%= displayDate %></p>
-  <p class="mb-1"><strong>จำนวนที่มา:</strong> <%= presentCount %></p>
-  <p class="mb-1"><strong>จำนวนที่ขาด:</strong> <%= absentCount %></p>
-</div>
 
+    <% if (!hasAnyAttendance) { %>
+      <div class="alert alert-info text-center my-4">
+        ไม่มีผลการเช็คชื่อในวันที่ <%= displayDate %>
+      </div>
+    <% } else { %>
 
-  <table class="table table-bordered">
-    <thead class="table-light">
-      <tr>
-        <th style="width:140px;">รหัสประจำตัว</th>
-        <th>ชื่อ</th>
-        <th>นามสกุล</th>
-        <th style="width:120px;">เวลา</th>
-        <th style="width:180px;">สถานะการเช็คเรียน</th>
-      </tr>
-    </thead>
-    <tbody>
-      <% students.forEach(s => { %>
-        <tr>
-          <td><%= s.studentid %></td>
-          <td><%= s.firstname %></td>
-          <td><%= s.surname %></td>
-          <td><%= s.checkin_time || '-' %></td>
-          <td>
-            <% if (s.status === 'Present') { %>
-              <span class="text-success fw-bold">มาเรียน</span>
-            <% } else { %>
-              <span class="text-danger fw-bold">ขาดเรียน</span>
-            <% } %>
-          </td>
-        </tr>
-      <% }) %>
-    </tbody>
-  </table>
-<% } %>
+      <!-- สรุปตามรูปที่ 2 -->
+      <div class="text-center mb-4">
+        <div class="fs-5 fw-semibold mb-1">
+          ชื่อชั้นเรียน <span class="text-dark"><%= classroom.classroomname %></span>
+        </div>
+        <div class="fs-6">
+          วันที่ <span class="fw-bold"><%= displayDate %></span>
+        </div>
+        <div class="d-flex justify-content-center gap-3 mt-2">
+          <span class="badge rounded-pill text-bg-success px-3 py-2">มาเรียน: <%= presentCount %></span>
+          <span class="badge rounded-pill text-bg-danger px-3 py-2">ขาดเรียน: <%= absentCount %></span>
+        </div>
+      </div>
+
+      <table class="table table-bordered">
+        <thead class="table-secondary">
+          <tr>
+            <th style="width:140px;">รหัสประจำตัว</th>
+            <th>ชื่อ</th>
+            <th>นามสกุล</th>
+            <th style="width:120px;">เวลา</th>
+            <th style="width:180px;">สถานะการเช็คเรียน</th>
+          </tr>
+        </thead>
+        <tbody>
+          <% students.forEach(s => { %>
+            <tr>
+              <td><%= s.studentid %></td>
+              <td><%= s.firstname %></td>
+              <td><%= s.surname %></td>
+              <td><%= s.checkin_time || '-' %></td>
+              <td>
+                <center>
+                <% if (s.status === 'Present') { %>
+                  <span class="badge rounded-pill text-bg-success px-4">มาเรียน</span>
+                <% } else { %>
+                  <span class="badge rounded-pill text-bg-danger px-4">ขาดเรียน</span>   
+                <% } %>
+                </center>
+              </td>
+            </tr>
+          <% }) %>
+        </tbody>
+      </table>
+    <% } %>
   </div>
 
   <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0-alpha1/dist/js/bootstrap.bundle.min.js"></script>

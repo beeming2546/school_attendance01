@@ -12,22 +12,32 @@
       font-weight: bold;
       margin-left: 4px;
     }
-    .form-group {
-      margin-bottom: 15px;
-    }
-    label {
-      font-weight: 500;
-    }
-    .btn-group {
-      display: flex;
-      justify-content: center;
-      gap: 15px;
-      margin-top: 25px;
-    }
-    .btn-group button,
-    .btn-group a.btn {
-      min-width: 150px;
-    }
+    
+  /* จัดแถวแบบ 3 คอลัมน์: label | field | *  */
+  .line-38{
+    display: grid;
+    grid-template-columns: 120px 1fr 5px;
+    align-items: center;
+    margin-bottom: 14px;
+  }
+
+  .label-38{
+    font-weight: 600;
+    color: #606060;
+  }
+
+  .field-38 .form-control{
+    background: #e9ecef;     /* เทาอ่อนคล้ายภาพ */
+  }
+
+  /* ปุ่มให้กึ่งกลางเหมือนหน้าอื่น */
+  .btn-group{
+    display: flex;
+    justify-content: center;
+    gap: 15px;
+    margin-top: 25px;
+  }
+  .btn-group .btn{ min-width: 150px; }
   </style>
   <script>
     function validateForm() {
@@ -55,23 +65,35 @@
     <% } %>
 
     <form action="/classroom/add-students" method="POST" onsubmit="return validateForm();">
-      <div class="form-row mb-3">
-        <label>รหัสประจำตัว (สามารถใส่หลายคนคั่นด้วย comma):<span class="required">*</span></label>
-        <textarea class="form-control" name="studentIds" rows="3" placeholder="เช่น 1001,1002,1003" required></textarea>
+  <div class="panel-38">
+    <!-- แถว: รหัสประจำตัว -->
+    <div class="line-38">
+      <div class="label-38">รหัสประจำตัว:</div>
+      <div class="field-38">
+        <input type="text" class="form-control"
+               name="studentIds"
+               placeholder="ใส่หลายคนคั่นด้วย comma เช่น 1001,1002,1003"
+               required>
       </div>
+      <span class="required">*</span>
+    </div>
 
-      <div class="form-row mb-3">
-        <label>ชื่อชั้นเรียน:</label>
-        <input type="text" class="form-control" value="<%= classroomName %>" readonly />
-        <input type="hidden" name="ClassroomId" value="<%= classroomId %>" />
+    <!-- แถว: ชื่อชั้นเรียน -->
+    <div class="line-38">
+      <div class="label-38">ชื่อชั้นเรียน:</div>
+      <div class="field-38">
+        <input type="text" class="form-control" value="<%= classroomName %>" readonly>
+        <input type="hidden" name="ClassroomId" value="<%= classroomId %>">
       </div>
-
-      <div class="btn-group">
-        <button type="submit" class="btn btn-primary">บันทึก</button>
-        <a href="/classroom/<%= classroomId %>/students" class="btn btn-secondary">ย้อนกลับ</a>
-      </div>
-    </form>
+      <span class="required">*</span>
+    </div>
   </div>
+
+  <center>
+    <button type="submit" class="btn btn-primary">บันทึก</button>
+    <a href="/classroom/<%= classroomId %>/students" class="btn btn-secondary">ย้อนกลับ</a>
+  </center>
+</form>
  
   <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0-alpha1/dist/js/bootstrap.bundle.min.js"></script>
 </body>

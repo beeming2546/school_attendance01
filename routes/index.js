@@ -964,13 +964,34 @@ router.get('/api/classroom/:id/attendance', requireRole('teacher'), async (req, 
 });
 
 // ✅ เลือกวันที่ไปหน้า QR (เหลือครั้งเดียวพอ)
+
 router.get('/classroom/:id/select-date', async (req, res) => {
   const { id } = req.params;
-  res.render('select_date', {
-    classroomId: id,
-    currentUser: req.session.user,
-    currentRole: req.session.role
-  });
+  try {
+    const result = await pool.query(
+      `SELECT classroomid, classroomname 
+       FROM classroom 
+       WHERE classroomid = $1`, 
+      [id]
+    );
+
+    if (result.rows.length === 0) {
+      return res.status(404).send("ไม่พบบันทึกชั้นเรียน");
+    }
+
+    const classroom = result.rows[0];
+
+    res.render('select_date', {
+      classroomId: classroom.classroomid,
+      classroomName: classroom.classroomname,  // ส่งค่าไป ejs
+      currentUser: req.session.user,
+      currentRole: req.session.role,
+      showNavbar: true
+    });
+  } catch (err) {
+    console.error(err);
+    res.status(500).send("Server Error");
+  }
 });
 
 router.post('/classroom/:id/generate-token', async (req, res) => {

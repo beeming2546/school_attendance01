@@ -37,26 +37,27 @@
       </tr>
     </table>
     <div class="text-center mt-3">
+  <div class="text-center mt-3">
   <% if (currentRole === 'teacher') { %>
-    <a href="/classroom/<%= classroom.classroomid %>/students" class="btn btn-primary">ดูรายชื่อผู้เรียน</a>
+    <a href="/classroom/<%= classroom.classroomid %>/students" class="btn btn-primary mx-2">ดูรายชื่อผู้เรียน</a>
     <a href="/classroom/<%= classroom.classroomid %>/select-date" class="btn btn-success mx-2">สร้าง QR Code เช็กชื่อ</a>
-    <a class="btn btn-outline-primary" href="/classroom/<%= classroom.classroomid %>/attendance-scores"> ดูคะแนนเช็คชื่อ (ทั้งห้อง)</a>
-    <a class="btn btn-outline-primary" href="/classroom/<%= classroom.classroomid %>/history"> ดูประวัติเช็คชื่อ (ทั้งห้อง)</a>
+    <a href="/classroom/<%= classroom.classroomid %>/attendance-scores" class="btn btn-primary mx-2">ดูคะแนนเช็คชื่อ (ทั้งห้อง)</a>
+    <a href="/classroom/<%= classroom.classroomid %>/history" class="btn btn-primary mx-2">ดูประวัติเช็คชื่อ (ทั้งห้อง)</a>
   <% } %>
   <a href="/classroom" class="btn btn-secondary">ย้อนกลับ</a>
 </div>
 
 
+
+
 <% if (currentRole === 'student') { %>
   <div class="mt-3">
-    <a href="/scan" class="btn btn-success">
-      📷 สแกน QR เพื่อเช็กชื่อ
-    </a>
-    <a href="/student/classroom/<%= classroom.classroomid %>/attendance-score"
+   
+    <a class="btn btn-primary" href="/student/classroom/<%= classroom.classroomid %>/attendance-score"
      class="btn btn-outline-primary mt-3">
      ดูคะแนนการเช็คชื่อของฉัน
   </a>
-  <a href="/student/classroom/<%= classroom.classroomid %>/attendance-history"
+  <a class="btn btn-primary" href="/student/classroom/<%= classroom.classroomid %>/attendance-history"
      class="btn btn-outline-primary mt-3">
      ดูประวัติการเช็คชื่อของฉัน
   </a>
