@@ -6,7 +6,7 @@ const qr = require('qrcode');
 const { v4: uuidv4 } = require('uuid');
 // ===== Auto clean attendancetoken every 30s =====
 const TOKEN_TTL_SECONDS = 10;      // ให้ตรงกับ TTL ใน /qr/:id/token
-const CLEAN_INTERVAL_MS  = 30_000; // 30 วินาที
+const CLEAN_INTERVAL_MS  = 3_600_000; // 1 ชั่วโมง
 
 setInterval(() => {
   pool.query(
@@ -16,7 +16,6 @@ setInterval(() => {
     [TOKEN_TTL_SECONDS]
   ).catch(e => console.error('token cleanup error:', e));
 }, CLEAN_INTERVAL_MS);
-
 //------------------------------------------------------------------
 //--------------------------LOGIN----------------------------------
 //------------------------------------------------------------------
@@ -97,7 +96,7 @@ router.get('/admin', requireRole('admin'), (req, res) => {
 // รายชื่อผู้ดูแลระบบ
 router.get('/admin/list/admin', requireRole('admin'), async (req, res) => {
   if (!req.session.user.is_master) {
-    return res.status(403).send('คุณไม่มีสิทธิ์เข้าถึงรายชื่อผู้ดูแลระบบ');
+    return res.redirect('/admin');
   }
 
   try {
@@ -164,7 +163,7 @@ router.get('/admin/add/:role', requireRole('admin'), (req, res) => {
 
   // ถ้าจะเพิ่ม admin แต่ไม่ใช่ master admin
   if (role === 'admin' && !req.session.user.is_master) {
-    return res.status(403).send('คุณไม่มีสิทธิ์เพิ่มผู้ดูแลระบบ');
+    return res.redirect('/admin');
   }
 
   if (!['admin', 'teacher', 'student'].includes(role)) return res.redirect('/admin');
@@ -185,10 +184,7 @@ router.post('/admin/add/:role', requireRole('admin'), async (req, res) => {
   const { role } = req.params;
   const { id, firstname, surname, username, password, email } = req.body;
 
-  // ถ้าจะเพิ่ม admin แต่ไม่ใช่ master admin
-  if (role === 'admin' && !req.session.user.is_master) {
-    return res.status(403).send('คุณไม่มีสิทธิ์เพิ่มผู้ดูแลระบบ');
-  }
+  
 
   // เช็คช่องว่างเบื้องต้น
   if (!id || !firstname || !username || !password || (role !== 'admin' && (!surname || !email))) {
@@ -309,11 +305,6 @@ router.get('/admin/edit/:role/:id', requireRole('admin'), async (req, res, next)
 router.post('/admin/edit/:role/:id', requireRole('admin'), async (req, res) => {
   const { role, id } = req.params;
   const { firstname, surname, username, password, email } = req.body;
-
-  // ถ้าแก้ไข admin แต่ user ไม่ใช่ master admin ห้ามบันทึก
-  if (role === 'admin' && !req.session.user.is_master) {
-    return res.status(403).send('คุณไม่มีสิทธิ์แก้ไขข้อมูลผู้ดูแลระบบ');
-  }
 
   try {
     let query;
@@ -600,7 +591,8 @@ router.get('/classroom/add-students', requireRole('teacher'), async (req, res) =
     const classroomId = req.query.classroomId;
 
     if (!classroomId) {
-      return res.status(400).send('กรุณาระบุรหัสชั้นเรียน');
+      req.session.error = 'กรุณาระบุรหัสชั้นเรียน';
+      return res.redirect(`/classroom/add-students/${id}`);
     }
 
     // Query ชื่อห้องเรียน จากตาราง Classroom ตาม TeacherId และ ClassroomId
@@ -610,12 +602,14 @@ router.get('/classroom/add-students', requireRole('teacher'), async (req, res) =
     );
 
     if (classroomRes.rows.length === 0) {
-      return res.status(403).send('คุณไม่มีสิทธิ์เข้าถึงชั้นเรียนนี้');
+      req.session.error = 'คุณไม่มีสิทธิ์เข้าถึงชั้นเรียนนี้';
+      return res.redirect(`/classroom`);
     }
 
     res.render('add_student_to_classroom', {
   classroomId,
   classroomName: classroomRes.rows[0].classroomname, // ✅ ใช้ lowercase
+  error: 'คุณไม่มีสิทธิ์เข้าถึงชั้นเรียนนี้',
   showNavbar: true,
   currentUser: req.session.user,
   currentRole: req.session.role,
@@ -879,9 +873,17 @@ router.get('/qr/:id', requireRole('teacher'), async (req, res) => {
       ORDER BY s.firstname
     `, [classroomId, selectedDate]);
 
-    res.render('qr', {
+    const rows = studentQuery.rows;
+
+    // นับจำนวนมาเรียน/ขาดเรียน (ถ้าต้องการนับ 'Late' เป็นมาเรียนด้วย ให้ใส่ใน includes)
+    const presentCount = rows.reduce((n, r) => n + (r.status === 'Present' ? 1 : 0), 0);
+    const absentCount  = rows.length - presentCount;
+
+    return res.render('qr', {
       classroomId,
       students: studentQuery.rows,
+      presentCount,
+      absentCount,
       showNavbar: true,
       currentUser: req.session.user,
       currentRole: 'teacher',
@@ -889,7 +891,9 @@ router.get('/qr/:id', requireRole('teacher'), async (req, res) => {
     });
   } catch (err) {
     console.error('Error loading QR page:', err);
-    res.status(500).send('ไม่สามารถโหลดหน้า QR ได้');
+    req.session.error = 'ไม่สามารถโหลดหน้า QR ได้';
+    res.redirect('/classroom');
+
   }
 });
 
@@ -1018,7 +1022,23 @@ router.get('/attendance/confirm/:token', requireRole('student'), async (req, res
         AND t.created_at > NOW() - ($2 || ' seconds')::interval
     `, [token, TOKEN_TTL_SECONDS]);
 
-    if (tok.rowCount === 0) return res.status(400).send('Token ไม่ถูกต้องหรือหมดอายุ');
+    // ❌ token ใช้ไม่ได้/หมดอายุ → alert แล้วเด้งกลับหน้า scan
+    if (tok.rowCount === 0) {
+      return res
+        .status(400)
+        .type('html')
+        .send(`<!doctype html><html lang="th"><head><meta charset="utf-8"></head>
+<body>
+<script>
+  alert(${JSON.stringify('Token ไม่ถูกต้องหรือหมดอายุ')});
+  window.location.replace(${JSON.stringify('/attendance/scan')});
+</script>
+<noscript>
+  <p>Token ไม่ถูกต้องหรือหมดอายุ</p>
+  <a href="/attendance/scan">กลับไปหน้าเช็คชื่อ</a>
+</noscript>
+</body></html>`);
+    }
 
     const { classroomid, classroomname } = tok.rows[0];
 
@@ -1026,6 +1046,8 @@ router.get('/attendance/confirm/:token', requireRole('student'), async (req, res
       `SELECT 1 FROM classroom_student WHERE classroomid = $1 AND studentid = $2`,
       [classroomid, student.studentid]
     );
+
+    // เคสยกเว้น: ยัง render not_enrolled ตามเดิม
     if (belong.rowCount === 0) {
       return res.status(403).render('not_enrolled', {
         classroomName: classroomname,
@@ -1042,6 +1064,7 @@ router.get('/attendance/confirm/:token', requireRole('student'), async (req, res
     const dateTH = now.toLocaleDateString('th-TH');
     const timeTH = now.toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit' });
 
+    // ✅ ปกติ: แสดงหน้า confirm
     return res.render('attendance_confirm', {
       classroomName: classroomname,
       date: dateTH,
@@ -1054,9 +1077,24 @@ router.get('/attendance/confirm/:token', requireRole('student'), async (req, res
     });
   } catch (err) {
     console.error('confirm error:', err);
-    return res.status(500).send('เกิดข้อผิดพลาดในการโหลดหน้ายืนยัน');
+    // ⚠️ error อื่นๆ → alert แล้วเด้งกลับหน้า scan
+    return res
+      .status(500)
+      .type('html')
+      .send(`<!doctype html><html lang="th"><head><meta charset="utf-8"></head>
+<body>
+<script>
+  alert(${JSON.stringify('เกิดข้อผิดพลาดในการโหลดหน้ายืนยัน')});
+  window.location.replace(${JSON.stringify('/attendance/scan')});
+</script>
+<noscript>
+  <p>เกิดข้อผิดพลาดในการโหลดหน้ายืนยัน</p>
+  <a href="/attendance/scan">กลับไปหน้าเช็คชื่อ</a>
+</noscript>
+</body></html>`);
   }
 });
+
 
 // ========== กดปุ่ม "ยืนยันการเช็คชื่อ" ==========
 // ป้องกันเช็คซ้ำในวันเดียวกัน + ไม่กิน token ถ้าเด็กคนนั้นเช็คไปแล้ว
@@ -1064,14 +1102,38 @@ router.post('/attendance/confirm', requireRole('student'), async (req, res) => {
   const token = (req.body.token || '').toString().trim();
   const student = req.session.user;
 
+  // helper ส่ง alert แล้ว redirect
+  const alertAndRedirect = (status, message, redirect = '/attendance/scan') => {
+    return res
+      .status(status)
+      .type('html')
+      .send(`<!doctype html><html lang="th"><head><meta charset="utf-8"></head>
+<body>
+<script>
+  alert(${JSON.stringify(message)});
+  // ใช้ replace() เพื่อลดโอกาสกดย้อนแล้วเด้ง alert ซ้ำ
+  window.location.replace(${JSON.stringify(redirect)});
+</script>
+<noscript>
+  <p>${message}</p>
+  <a href="${redirect}">กลับไปหน้าเช็คชื่อ</a>
+</noscript>
+</body></html>`);
+  };
+
   try {
-    const t = await pool.query(`
+    const t = await pool.query(
+      `
       SELECT classroomid
       FROM attendancetoken
       WHERE token=$1 AND is_used=FALSE
         AND created_at > NOW() - ($2 || ' seconds')::interval
-    `, [token, TOKEN_TTL_SECONDS]);
-    if (t.rowCount === 0) return res.status(400).send('Token ไม่ถูกต้องหรือหมดอายุ');
+      `,
+      [token, TOKEN_TTL_SECONDS]
+    );
+    if (t.rowCount === 0) {
+      return alertAndRedirect(400, 'Token ไม่ถูกต้องหรือหมดอายุ');
+    }
 
     const classroomId = t.rows[0].classroomid;
 
@@ -1080,41 +1142,53 @@ router.post('/attendance/confirm', requireRole('student'), async (req, res) => {
       [classroomId, student.studentid]
     );
     if (belong.rowCount === 0) {
+      // เคสนี้คงเดิม: แสดงหน้า not_enrolled
       return res.status(403).render('not_enrolled', {
         classroomName: '',
         studentName: `${student.firstname} ${student.surname}`,
-        showNavbar: true, currentUser: req.session.user, currentRole: req.session.role
+        showNavbar: true,
+        currentUser: req.session.user,
+        currentRole: req.session.role,
       });
     }
 
-    // กันเช็คซ้ำในวันเดียวกัน (อย่ากิน token ถ้าเช็คไปแล้ว)
-    const exist = await pool.query(`
+    const exist = await pool.query(
+      `
       SELECT 1 FROM attendance
       WHERE classroomid=$1 AND studentid=$2 AND date=CURRENT_DATE
-    `, [classroomId, student.studentid]);
+      `,
+      [classroomId, student.studentid]
+    );
     if (exist.rowCount > 0) {
-      return res.status(409).send('คุณได้เช็คชื่อไปแล้วในวันนี้');
+      return alertAndRedirect(409, 'คุณได้เช็คชื่อไปแล้วในวันนี้');
     }
 
-    // ล็อก token คนแรกเท่านั้น
-    const lock = await pool.query(`
+    const lock = await pool.query(
+      `
       UPDATE attendancetoken
          SET is_used=TRUE
        WHERE token=$1 AND is_used=FALSE
          AND created_at > NOW() - ($2 || ' seconds')::interval
        RETURNING token
-    `, [token, TOKEN_TTL_SECONDS]);
-    if (lock.rowCount === 0) return res.status(400).send('Token ถูกใช้ไปแล้วหรือหมดอายุ');
+      `,
+      [token, TOKEN_TTL_SECONDS]
+    );
+    if (lock.rowCount === 0) {
+      return alertAndRedirect(400, 'Token ถูกใช้ไปแล้วหรือหมดอายุ');
+    }
 
-    await pool.query(`
+    await pool.query(
+      `
       INSERT INTO attendance (studentid, classroomid, date, "time", status)
       VALUES ($1,$2,CURRENT_DATE,NOW()::time,'Present')
-    `, [student.studentid, classroomId]);
+      `,
+      [student.studentid, classroomId]
+    );
 
-    return res.send('✅ เช็คชื่อสำเร็จ');
+    return alertAndRedirect(200, '✅ เช็คชื่อสำเร็จ');
   } catch (err) {
     console.error('submit confirm error:', err);
-    return res.status(500).send('เกิดข้อผิดพลาดในการบันทึกการเช็คชื่อ');
+    return alertAndRedirect(500, 'เกิดข้อผิดพลาดในการบันทึกการเช็คชื่อ');
   }
 });
 //------------------------------------------------------------------

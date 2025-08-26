@@ -57,9 +57,11 @@
 
   <div class="container" style="max-width: 600px; margin: 20px auto; padding: 0 15px;">
     <h2>เพิ่ม <%= role === 'admin' ? 'ผู้ดูแลระบบ' : (role === 'teacher' ? 'ครู' : 'นักเรียน') %></h2>
-    <% if (typeof error !== 'undefined' && error) { %>
-  <p style="color:red; text-align:center;"><%= error %></p>
-<% } %>
+    <% if (error) { %>
+    <script>
+      alert("<%= error %>");
+    </script>
+  <% } %>
 
     <form name="addForm" action="/admin/add/<%= role %>" method="POST" onsubmit="return validateForm()">
       <div class="form-row">

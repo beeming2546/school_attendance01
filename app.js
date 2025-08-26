@@ -26,6 +26,7 @@ app.set('view engine', 'ejs');
 // Middleware ให้ user และ showNavbar ใช้งานได้ทุกหน้า
 app.use((req, res, next) => {
   res.locals.user = req.session.user || null;
+  req.session.error = null; // เคลียร์ทันทีหลังอ่าน
   res.locals.showNavbar = true;
   next();
 });
