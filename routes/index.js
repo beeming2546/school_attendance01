@@ -1061,8 +1061,8 @@ router.get('/attendance/confirm/:token', requireRole('student'), async (req, res
     }
 
     const now = new Date();
-    const dateTH = now.toLocaleDateString('th-TH');
-    const timeTH = now.toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit' });
+const dateTH = now.toLocaleDateString('th-TH', { timeZone: 'Asia/Bangkok' });
+const timeTH = now.toLocaleTimeString('th-TH', { timeZone: 'Asia/Bangkok', hour: '2-digit', minute: '2-digit' });
 
     // ✅ ปกติ: แสดงหน้า confirm
     return res.render('attendance_confirm', {
@@ -1180,7 +1180,10 @@ router.post('/attendance/confirm', requireRole('student'), async (req, res) => {
     await pool.query(
       `
       INSERT INTO attendance (studentid, classroomid, date, "time", status)
-      VALUES ($1,$2,CURRENT_DATE,NOW()::time,'Present')
+      VALUES ($1, $2,
+        (NOW() AT TIME ZONE 'Asia/Bangkok')::date,
+        (NOW() AT TIME ZONE 'Asia/Bangkok')::time,
+        'Present');
       `,
       [student.studentid, classroomId]
     );
