@@ -1,21 +1,29 @@
-<nav class="navbar navbar-expand-lg navbar-dark bg-dark fixed-top">
-  <div class="container-fluid px-4">
-    <span class="navbar-brand"></span>
-    <div class="ms-auto d-flex align-items-center">
+<%
+  const homeHref = (currentRole === 'admin') ? '/admin' : '/classroom';
+%>
 
-      <span class="username me-3 text-white fw-bold">
-        คุณ: 
+<nav class="navbar navbar-dark bg-dark navbar-expand-lg fixed-top">
+  <div class="container-fluid px-1">
+    <!-- ถ้าอยากมีชื่อระบบด้านซ้าย เปิดอันนี้ได้ -->
+    <!-- <a class="navbar-brand" href="<%= homeHref %>">ระบบเช็กชื่อ QR</a> -->
+
+    <!-- ใส่ ms-auto เพื่อดันทั้งกรอบไปทางขวา -->
+    
+      <span class="navbar-text text-white fw-bold">
+        คุณ:
         <% if (currentUser && currentRole === 'admin') { %>
           <%= currentUser.name %>
-        <% } else if (currentUser && currentRole === 'teacher') { %>
-          <%= currentUser.firstname %> <%= currentUser.surname %>
-        <% } else if (currentUser && currentRole === 'student') { %>
+        <% } else if (currentUser && (currentRole === 'teacher' || currentRole === 'student')) { %>
           <%= currentUser.firstname %> <%= currentUser.surname %>
         <% } %>
       </span>
 
-      <form action="/logout" method="get" onsubmit="return confirm('คุณต้องการออกจากระบบหรือไม่?');" style="margin: 0;">
-        <button type="submit" class="btn btn-danger btn-sm">ออกจากระบบ</button>
+      <form action="/logout" method="get" class="m-0"
+            onsubmit="return confirm('คุณต้องการออกจากระบบหรือไม่?');">
+        <!-- มือถือเต็มกว้าง / จอใหญ่ขนาดพอดี -->
+        <button type="submit" class="btn btn-danger btn-sm w-100 w-lg-auto">
+          ออกจากระบบ
+        </button>
       </form>
     </div>
   </div>

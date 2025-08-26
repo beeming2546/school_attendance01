@@ -2,20 +2,18 @@
 <html lang="th">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>คะแนนการเช็คชื่อของผู้เรียน (ทั้งห้อง)</title>
+  <link rel="stylesheet" href="/style.css" />
   <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0-alpha1/dist/css/bootstrap.min.css" rel="stylesheet">
-  <style>
-    .label { font-weight:600; }
-    body { padding-top: 72px; }  /* เผื่อ navbar เป็น fixed-top สูง ~56-70px */
-  </style>
+  
 </head>
 <body>
   <% if (showNavbar) { %>
     <%- include('partials/navbar', { currentUser, currentRole }) %>
   <% } %>
 
-  <div class="container my-4">
+  <div class="container my-5">
     <h2 class="text-center mb-4">รายงาน ข้อมูลคะแนนการเช็คชื่อเข้าชั้นเรียนของผู้เรียน</h2>
 
     <div class="text-center mb-4">
@@ -33,7 +31,7 @@
         ยังไม่มีการเช็คชื่อของชั้นเรียนนี้
       </div>
     <% } %>
-
+    <div class="table-responsive mt-3">
     <table class="table table-bordered mt-2 align-middle">
       <thead class="table-secondary">
         <tr class="text-center">
@@ -66,8 +64,8 @@
         <% }) %>
       </tbody>
     </table>
-
-    <div class="d-flex justify-content-end mt-2">
+  </div>
+    <div class="d-grid gap-2 d-sm-flex justify-content-sm-center mt-1">
       <span class="badge rounded-pill text-bg-primary px-3 py-2 fs-6">
         คาบทั้งหมดในห้องนี้: <%= totalSessions %> คาบ
       </span>
@@ -76,6 +74,7 @@
     <div class="mt-3">
       <center><a href="/classroom/view/<%= classroom.classroomid %>" class="btn btn-secondary">ย้อนกลับ</a></center>
     </div>
+    
   </div>
 
   <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0-alpha1/dist/js/bootstrap.bundle.min.js"></script>

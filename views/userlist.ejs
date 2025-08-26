@@ -63,12 +63,20 @@
                 <td><%= user.surname %></td>
                 <td><%= user.email %></td>
               <% } %>
-              <td>
-                <a href="/admin/edit/<%= role %>/<%= role === 'admin' ? user.adminid : (role === 'teacher' ? user.teacherid : user.studentid) %>" class="btn btn-warning btn-sm btn-space">แก้ไข</a>
-                <form action="/admin/delete/<%= role %>/<%= role === 'admin' ? user.adminid : (role === 'teacher' ? user.teacherid : user.studentid) %>" method="POST" style="display:inline-block;" onsubmit="return confirm('คุณแน่ใจว่าต้องการลบหรือไม่?');">
-                  <button type="submit" class="btn btn-danger btn-sm btn-space">ลบ</button>
-                </form>
-              </td>
+             <td class="p-1">
+  <div class="d-flex gap-2">
+    <a href="/admin/edit/<%= role %>/<%= role === 'admin' ? user.adminid : (role === 'teacher' ? user.teacherid : user.studentid) %>"
+       class="btn btn-warning  ">
+      แก้ไข
+    </a>
+
+    <form action="/admin/delete/<%= role %>/<%= role === 'admin' ? user.adminid : (role === 'teacher' ? user.teacherid : user.studentid) %>"
+          method="POST" class="m-0 "
+          onsubmit="return confirm('คุณแน่ใจว่าต้องการลบหรือไม่?');">
+      <button type="submit" class="btn btn-danger ">ลบ</button>
+    </form>
+  </div>
+</td>
             </tr>
           <% }) %>
         </tbody>
