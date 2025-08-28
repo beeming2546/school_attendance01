@@ -6,12 +6,12 @@ const qr = require('qrcode');
 const { v4: uuidv4 } = require('uuid');
 // ===== Auto clean attendancetoken every 30s =====
 const TOKEN_TTL_SECONDS = 10;      // ให้ตรงกับ TTL ใน /qr/:id/token
-const CLEAN_INTERVAL_MS  = 3_600_000; // 1 ชั่วโมง
+const CLEAN_INTERVAL_MS  = 900_000; // 1 ชั่วโมง 3_600_000 | 30 นาที 1_800_000 | 15 นาที 900_000
 
 setInterval(() => {
   pool.query(
     `DELETE FROM attendancetoken
-      WHERE is_used = TRUE
+      WHERE is_ used = TRUE
          OR created_at < NOW() - ($1 || ' seconds')::interval`,
     [TOKEN_TTL_SECONDS]
   ).catch(e => console.error('token cleanup error:', e));
@@ -852,12 +852,35 @@ router.get('/api/qr-status/:classroomId', requireRole('teacher'), async (req, re
 });
 
 // หน้ารวม QR + รายชื่อนักเรียนของห้อง ณ วันที่เลือก
+// GET /qr/:id?date=YYYY-MM-DD
 router.get('/qr/:id', requireRole('teacher'), async (req, res) => {
   const classroomId = req.params.id;
-  const selectedDate = req.query.date || new Date().toISOString().split('T')[0];
+
+  // ตรวจสอบรูปแบบ YYYY-MM-DD
+  const isISODate = (s) => typeof s === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(s);
+
+  // วันที่วันนี้ตามโซนเวลาไทย เป็นรูปแบบ YYYY-MM-DD
+  const todayISOInBangkok = () => {
+    const now = new Date();
+    const th = new Date(now.toLocaleString('en-US', { timeZone: 'Asia/Bangkok' }));
+    const y = th.getFullYear();
+    const m = String(th.getMonth() + 1).padStart(2, '0');
+    const d = String(th.getDate()).padStart(2, '0');
+    return `${y}-${m}-${d}`;
+  };
+
+  const selectedDate = isISODate(req.query.date) ? req.query.date : todayISOInBangkok();
+
+  // ฟอร์แมต YYYY-MM-DD -> DD/MM/YYYY เพื่อแสดงผล
+  const displayDate = (() => {
+    const [y, m, d] = selectedDate.split('-');
+    return `${d}/${m}/${y}`;
+  })();
 
   try {
-    const studentQuery = await pool.query(`
+    // 1) ดึงรายชื่อนักเรียน + สถานะเช็กชื่อของวันนั้น
+    const studentQuery = await pool.query(
+      `
       SELECT
         s.studentid,
         s.firstname || ' ' || s.surname AS fullname,
@@ -871,31 +894,50 @@ router.get('/qr/:id', requireRole('teacher'), async (req, res) => {
        AND a.date = $2
       WHERE cs.classroomid = $1
       ORDER BY s.firstname
-    `, [classroomId, selectedDate]);
+      `,
+      [classroomId, selectedDate]
+    );
+
+    // 2) ดึงชื่อชั้นเรียน
+    const classQuery = await pool.query(
+      `SELECT classroomname FROM classroom WHERE classroomid = $1`,
+      [classroomId]
+    );
 
     const rows = studentQuery.rows;
+    const classroomName = classQuery.rows[0]?.classroomname || '-';
 
-    // นับจำนวนมาเรียน/ขาดเรียน (ถ้าต้องการนับ 'Late' เป็นมาเรียนด้วย ให้ใส่ใน includes)
+    // ผู้สอน (เอาจาก session ของครูที่ล็อกอิน)
+    const teacherName = [
+      req.session?.user?.firstname || '',
+      req.session?.user?.surname || ''
+    ].filter(Boolean).join(' ') || '-';
+
+    // นับจำนวนมาเรียน/ขาดเรียน
     const presentCount = rows.reduce((n, r) => n + (r.status === 'Present' ? 1 : 0), 0);
     const absentCount  = rows.length - presentCount;
 
     return res.render('qr', {
       classroomId,
-      students: studentQuery.rows,
+      classroomName,     // 🟢 ส่งให้ qr.ejs
+      teacherName,       // 🟢 ส่งให้ qr.ejs
+      displayDate,       // 🟢 ส่งให้ qr.ejs (DD/MM/YYYY)
+      selectedDate,      // คงไว้ถ้าหน้าอื่นต้องใช้ (YYYY-MM-DD)
+
+      students: rows,
       presentCount,
       absentCount,
       showNavbar: true,
       currentUser: req.session.user,
       currentRole: 'teacher',
-      selectedDate
     });
   } catch (err) {
     console.error('Error loading QR page:', err);
     req.session.error = 'ไม่สามารถโหลดหน้า QR ได้';
-    res.redirect('/classroom');
-
+    return res.redirect('/classroom');
   }
 });
+
 
 // นักเรียนสแกน token เพื่อเช็กชื่อ
 // นักเรียนสแกน → ตรวจ token แล้วบอกให้ไปหน้า confirm
