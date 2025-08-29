@@ -53,7 +53,7 @@
   <% } %>
 
   <div class="container" style="max-width: 600px; margin: 20px auto; padding: 0 15px;">
-    <h2 class="mb-4 text-center">เลือกวันที่เพื่อสร้าง QR Code</h2>
+    <h2 class="mb-4 text-center">ข้อมูลเพื่อสร้าง QR Code</h2>
 
     <form action="/classroom/<%= classroomId %>/generate-token" method="POST">
       <div class="form-row">
@@ -68,7 +68,7 @@
   <label for="date">วันที่:</label>
   <div class="field">
     <input type="date" class="form-control" name="date" id="date" required
-           value="<%= new Date().toISOString().split('T')[0] %>">
+           value="<%= new Date().toISOString().split('T')[0] %>" readonly>
     <span class="required">*</span>
   </div>
 </div>

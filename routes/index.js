@@ -117,12 +117,12 @@ router.get('/admin/list/admin', requireRole('admin'), async (req, res) => {
 });
 
 
-// รายชื่อครู
+// รายชื่ออาจารย์
 router.get('/admin/list/teacher', requireRole('admin'), async (req, res) => {
   try {
     const result = await pool.query('SELECT * FROM Teacher ORDER BY TeacherId ASC');
     res.render('userlist', {
-      title: 'รายชื่อครู',
+      title: 'รายชื่ออาจารย์',
       users: result.rows,
       role: 'teacher',
       currentUser: req.session.user,
@@ -131,17 +131,17 @@ router.get('/admin/list/teacher', requireRole('admin'), async (req, res) => {
     });
   } catch (err) {
     console.error(err);
-    req.session.error = 'เกิดข้อผิดพลาดในการดึงข้อมูลครู';
+    req.session.error = 'เกิดข้อผิดพลาดในการดึงข้อมูลอาจารย์';
     res.redirect('/admin');
   }
 });
 
-//  รายชื่อนักเรียน
+//  รายชื่อนักศีกษา
 router.get('/admin/list/student', requireRole('admin'), async (req, res) => {
   try {
     const result = await pool.query('SELECT * FROM Student ORDER BY StudentId ASC');
     res.render('userlist', {
-      title: 'รายชื่อนักเรียน',
+      title: 'รายชื่อนักศีกษา',
       users: result.rows,
       role: 'student',
       currentUser: req.session.user,
@@ -150,7 +150,7 @@ router.get('/admin/list/student', requireRole('admin'), async (req, res) => {
     });
   } catch (err) {
     console.error(err);
-    req.session.error = 'เกิดข้อผิดพลาดในการดึงข้อมูลนักเรียน';
+    req.session.error = 'เกิดข้อผิดพลาดในการดึงข้อมูลนักศีกษา';
     res.redirect('/admin');
   }
 });
@@ -447,7 +447,7 @@ router.get('/classroom', requireAnyRole(['teacher', 'student']), async (req, res
 //------------------------------------------------------------------
 //--------------------------ADD CLASSROOM---------------------------
 //------------------------------------------------------------------
-// GET: แสดงฟอร์มสร้างห้องเรียน (เฉพาะครู)
+// GET: แสดงฟอร์มสร้างห้องเรียน (เฉพาะอาจารย์)
 router.get('/classroom/add', requireRole('teacher'), (req, res) => {
   const error = req.session.error || null;
   req.session.error = null;
@@ -461,7 +461,7 @@ router.get('/classroom/add', requireRole('teacher'), (req, res) => {
 });
 
 
-// POST: บันทึก classroom ใหม่ (เฉพาะครู)
+// POST: บันทึก classroom ใหม่ (เฉพาะอาจารย์)
 router.post('/classroom/add', requireRole('teacher'), async (req, res) => {
   const { ClassroomName, RoomNumber, Description, MinAttendancePercent } = req.body;
 
@@ -677,7 +677,7 @@ router.post('/classroom/add-students', requireRole('teacher'), async (req, res) 
       return res.render('add_student_to_classroom', {
         classroomId: ClassroomId,
         classroomName,
-        error: 'รหัสนักเรียนมีอยู่ในชั้นเรียนแล้ว',
+        error: 'รหัสนักศีกษามีอยู่ในชั้นเรียนแล้ว',
         showNavbar: true,
         currentUser: req.session.user,
         currentRole: req.session.role,
@@ -704,7 +704,7 @@ router.post('/classroom/add-students', requireRole('teacher'), async (req, res) 
     return res.render('add_student_to_classroom', {
       classroomId: ClassroomId,
       classroomName,
-      error: 'รหัสนักเรียนไม่ถูกต้อง หรือไม่มีรหัสนักเรียนที่มีในระบบ',
+      error: 'รหัสนักศีกษาไม่ถูกต้อง หรือไม่มีรหัสนักศีกษาที่มีในระบบ',
       showNavbar: true,
       currentUser: req.session.user,
       currentRole: req.session.role,
@@ -725,7 +725,7 @@ router.get('/classroom/:id/students', requireAnyRole(['teacher', 'student']), as
     );
     if (classRes.rows.length === 0) return res.redirect('/classroom');
 
-    // ดึงรายชื่อนักเรียนในห้อง
+    // ดึงรายชื่อนักศีกษาในห้อง
     const studentRes = await pool.query(`
       SELECT s.studentid, s.firstname, s.surname
       FROM classroom_student cs
@@ -760,10 +760,10 @@ router.post('/classroom/:classroomId/students/:studentId/remove', requireRole('t
     );
 
     if (classroomCheck.rows.length === 0) {
-      return res.status(403).send('คุณไม่มีสิทธิ์ลบนักเรียนในห้องเรียนนี้');
+      return res.status(403).send('คุณไม่มีสิทธิ์ลบนักศีกษาในห้องเรียนนี้');
     }
 
-    // ลบนักเรียนจากห้องเรียน
+    // ลบนักศีกษาจากห้องเรียน
     await pool.query(
       'DELETE FROM classroom_student WHERE classroomid = $1 AND studentid = $2',
       [classroomId, studentId]
@@ -771,8 +771,8 @@ router.post('/classroom/:classroomId/students/:studentId/remove', requireRole('t
 
     res.redirect(`/classroom/${classroomId}/students`);
   } catch (err) {
-    console.error('เกิดข้อผิดพลาดในการลบนักเรียน:', err);
-    res.status(500).send('เกิดข้อผิดพลาดในการลบนักเรียน');
+    console.error('เกิดข้อผิดพลาดในการลบนักศีกษา:', err);
+    res.status(500).send('เกิดข้อผิดพลาดในการลบนักศีกษา');
   }
 });
 
@@ -825,8 +825,8 @@ router.get('/qr/:id/token', requireRole('teacher'), async (req, res) => {
   }
 });
 
-// สร้าง QR token (ครูเรียกจากหน้าดู QR ทุก 10 วิ)
-// ครูเท่านั้นที่ดูสถานะได้
+// สร้าง QR token (อาจารย์เรียกจากหน้าดู QR ทุก 10 วิ)
+// อาจารย์เท่านั้นที่ดูสถานะได้
 router.get('/api/qr-status/:classroomId', requireRole('teacher'), async (req, res) => {
   const classroomId = parseInt(req.params.classroomId, 10);
   const token = (req.query.token || '').toString().trim();
@@ -851,7 +851,7 @@ router.get('/api/qr-status/:classroomId', requireRole('teacher'), async (req, re
   }
 });
 
-// หน้ารวม QR + รายชื่อนักเรียนของห้อง ณ วันที่เลือก
+// หน้ารวม QR + รายชื่อนักศีกษาของห้อง ณ วันที่เลือก
 // GET /qr/:id?date=YYYY-MM-DD
 router.get('/qr/:id', requireRole('teacher'), async (req, res) => {
   const classroomId = req.params.id;
@@ -878,7 +878,7 @@ router.get('/qr/:id', requireRole('teacher'), async (req, res) => {
   })();
 
   try {
-    // 1) ดึงรายชื่อนักเรียน + สถานะเช็กชื่อของวันนั้น
+    // 1) ดึงรายชื่อนักศีกษา + สถานะเช็กชื่อของวันนั้น
     const studentQuery = await pool.query(
       `
       SELECT
@@ -907,7 +907,7 @@ router.get('/qr/:id', requireRole('teacher'), async (req, res) => {
     const rows = studentQuery.rows;
     const classroomName = classQuery.rows[0]?.classroomname || '-';
 
-    // ผู้สอน (เอาจาก session ของครูที่ล็อกอิน)
+    // ผู้สอน (เอาจาก session ของอาจารย์ที่ล็อกอิน)
     const teacherName = [
       req.session?.user?.firstname || '',
       req.session?.user?.surname || ''
@@ -939,8 +939,8 @@ router.get('/qr/:id', requireRole('teacher'), async (req, res) => {
 });
 
 
-// นักเรียนสแกน token เพื่อเช็กชื่อ
-// นักเรียนสแกน → ตรวจ token แล้วบอกให้ไปหน้า confirm
+// นักศีกษาสแกน token เพื่อเช็กชื่อ
+// นักศีกษาสแกน → ตรวจ token แล้วบอกให้ไปหน้า confirm
 router.post('/api/scan', requireRole('student'), async (req, res) => {
   try {
     const raw = (req.body.token || '').toString().trim();
@@ -965,7 +965,7 @@ router.post('/api/scan', requireRole('student'), async (req, res) => {
   }
 });
 
-// หน้าสแกน (นักเรียน)
+// หน้าสแกน (นักศีกษา)
 router.get('/scan', requireRole('student'), (req, res) => {
   res.render('scan', {
     currentUser: req.session.user,
@@ -1047,7 +1047,7 @@ router.post('/classroom/:id/generate-token', async (req, res) => {
 });
 
 
-// ========== หน้ายืนยันการเช็คชื่อ (นักเรียนกดจากลิงก์ใน QR) ==========
+// ========== หน้ายืนยันการเช็คชื่อ (นักศีกษากดจากลิงก์ใน QR) ==========
 // GET /attendance/confirm/:token — แสดงหน้ายืนยันหลังสแกน (ยังไม่บันทึก)
 router.get('/attendance/confirm/:token', requireRole('student'), async (req, res) => {
   const { token } = req.params;
@@ -1330,7 +1330,7 @@ router.get('/classroom/:id/attendance-scores', requireRole('teacher'), async (re
     );
     const totalSessions = totalRes.rows[0].total_sessions;
 
-    // 3) รวมสถิติของนักเรียนทุกคน — นับเฉพาะ Present
+    // 3) รวมสถิติของนักศีกษาทุกคน — นับเฉพาะ Present
     const statsRes = await pool.query(`
       SELECT
         s.studentid,
@@ -1382,13 +1382,13 @@ router.get('/classroom/:id/attendance-scores', requireRole('teacher'), async (re
 });
 
 
-// ประวัติการเช็คชื่อของ "นักเรียนที่ล็อกอินอยู่" ในห้องนี้
+// ประวัติการเช็คชื่อของ "นักศีกษาที่ล็อกอินอยู่" ในห้องนี้
 router.get('/student/classroom/:id/attendance-history', requireRole('student'), async (req, res) => {
   const classroomId = req.params.id;
   const studentId   = req.session.user.studentid;
 
   try {
-    // ต้องเป็นนักเรียนในห้องนี้
+    // ต้องเป็นนักศีกษาในห้องนี้
     const belong = await pool.query(
       `SELECT 1 FROM classroom_student WHERE classroomid = $1 AND studentid = $2`,
       [classroomId, studentId]
@@ -1429,13 +1429,13 @@ router.get('/student/classroom/:id/attendance-history', requireRole('student'), 
   }
 });
 
-// คะแนนการเช็คชื่อของ "นักเรียนที่ล็อกอินอยู่" ในห้องนี้
+// คะแนนการเช็คชื่อของ "นักศีกษาที่ล็อกอินอยู่" ในห้องนี้
 router.get('/student/classroom/:id/attendance-score', requireRole('student'), async (req, res) => {
   const classroomId = req.params.id;
   const studentId   = req.session.user.studentid;
 
   try {
-    // 1) นักเรียนต้องอยู่ในห้องนี้ก่อน
+    // 1) นักศีกษาต้องอยู่ในห้องนี้ก่อน
     const belong = await pool.query(
       `SELECT 1 FROM classroom_student WHERE classroomid = $1 AND studentid = $2`,
       [classroomId, studentId]
@@ -1465,7 +1465,7 @@ router.get('/student/classroom/:id/attendance-score', requireRole('student'), as
     );
     const totalSessions = totalRes.rows[0].total_sessions;
 
-    // 4) นับเฉพาะ "Present" ของนักเรียนคนนี้
+    // 4) นับเฉพาะ "Present" ของนักศีกษาคนนี้
     const presentRes = await pool.query(
       `SELECT COUNT(*)::int AS c
          FROM attendance

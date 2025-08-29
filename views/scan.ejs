@@ -42,6 +42,23 @@
   }
   const html5QrcodeScanner = new Html5QrcodeScanner("reader", { fps: 10, qrbox: 250 });
   html5QrcodeScanner.render(onScanSuccess);
+
+    // คำที่ต้องการตรวจหา
+  const targetWords = ["Token ไม่ถูกต้องหรือหมดอายุ", "Token", "หมดเวลา"];
+
+  function checkAndReload() {
+    const bodyText = document.body.innerText.toLowerCase();
+
+    for (let word of targetWords) {
+      if (bodyText.includes(word.toLowerCase())) {
+        location.reload(); // รีเฟรชหน้าเว็บ
+        break;
+      }
+    }
+  }
+
+  // ตรวจสอบทุกๆ 5 วินาที
+  setInterval(checkAndReload, 1000);
 </script>
 
   <!-- Bootstrap JS -->
