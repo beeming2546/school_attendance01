@@ -852,7 +852,6 @@ router.get('/api/qr-status/:classroomId', requireRole('teacher'), async (req, re
 });
 
 // หน้ารวม QR + รายชื่อนักศีกษาของห้อง ณ วันที่เลือก
-// GET /qr/:id?date=YYYY-MM-DD
 router.get('/qr/:id', requireRole('teacher'), async (req, res) => {
   const classroomId = req.params.id;
 

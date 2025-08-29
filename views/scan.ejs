@@ -44,7 +44,7 @@
   html5QrcodeScanner.render(onScanSuccess);
 
     // คำที่ต้องการตรวจหา
-  const targetWords = ["Token ไม่ถูกต้องหรือหมดอายุ", "Token", "หมดเวลา"];
+  const targetWords = ["Token ไม่ถูกต้องหรือหมดอายุ", "Token", "หมดอายุ", "ไม่ถูกต้อง"];
 
   function checkAndReload() {
     const bodyText = document.body.innerText.toLowerCase();
@@ -57,7 +57,6 @@
     }
   }
 
-  // ตรวจสอบทุกๆ 5 วินาที
   setInterval(checkAndReload, 1000);
 </script>
 
