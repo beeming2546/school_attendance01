@@ -7,100 +7,173 @@
   <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0-alpha1/dist/css/bootstrap.min.css" rel="stylesheet" />
   <link rel="stylesheet" href="/style.css" />
   <style>
-    .required {
-      color: red;
-      font-weight: bold;
-      margin-left: 4px;
+    .required { color: #dc3545; font-weight: 700; margin-left: 6px; }
+
+    /* กริด 3 คอลัมน์: label | field | *  */
+    .line-38{
+      display: grid;
+      grid-template-columns: 140px 1fr 12px;
+      align-items: center;
+      gap: 10px;
+      margin-bottom: 14px;
     }
-    
-  /* จัดแถวแบบ 3 คอลัมน์: label | field | *  */
-  .line-38{
-    display: grid;
-    grid-template-columns: 120px 1fr 5px;
-    align-items: center;
-    margin-bottom: 14px;
-  }
+    .label-38{ font-weight: 600; color: #606060; }
+    .field-38 .form-control, .field-38 .form-select { background: #f5f6f7; }
 
-  .label-38{
-    font-weight: 600;
-    color: #606060;
-  }
+    .panel-38{ max-width: 680px; margin: 0 auto; }
+    .btn-group{ display: flex; justify-content: center; gap: 12px; margin-top: 22px; }
+    .btn-group .btn{ min-width: 150px; }
 
-  .field-38 .form-control{
-    background: #e9ecef;     /* เทาอ่อนคล้ายภาพ */
-  }
-
-  /* ปุ่มให้กึ่งกลางเหมือนหน้าอื่น */
-  .btn-group{
-    display: flex;
-    justify-content: center;
-    gap: 15px;
-    margin-top: 25px;
-  }
-  .btn-group .btn{ min-width: 150px; }
+    /* กล่องคำแนะนำ */
+    .hint-box{ font-size: .92rem; color: #475569; background: #f8fafc; border: 1px dashed #cbd5e1; border-radius: 8px; padding: 10px 12px; }
+    pre.sample{ white-space: pre-wrap; background: #f8f9fa; border: 1px solid #dee2e6; border-radius: 6px; padding: 8px 10px; }
   </style>
-  <script>
-    function validateForm() {
-      const ids = document.querySelector('textarea[name="studentIds"]').value.trim();
-      const classroomId = document.querySelector('input[name="ClassroomId"]').value;
-      if (!ids || !classroomId) {
-        alert("กรุณากรอกข้อมูลให้ครบทุกช่อง");
-        return false;
-      }
-      return confirm("คุณต้องการบันทึกข้อมูลนี้ใช่หรือไม่?");
-    }
-    
-  </script>
 </head>
+
 <body>
   <% if (showNavbar) { %>
     <%- include('partials/navbar', { currentUser: currentUser, currentRole: currentRole }) %>
   <% } %>
-  
 
-  <div class="container" style="max-width: 600px; margin: 20px auto; padding: 0 15px;">
-    <h2 class="mb-4 text-center">เพิ่มผู้เรียนเข้าชั้นเรียน</h2>
+  <div class="container" style="max-width: 760px; margin: 24px auto; padding: 0 15px;">
+    <h2 class="mb-3 text-center">เพิ่มผู้เรียนเข้าชั้นเรียน</h2>
 
     <% if (error) { %>
-      <p class="text-danger text-center"><%= error %></p>
+      <div class="alert alert-danger text-center"><%= error %></div>
+    <% } %>
+    <% if (success) { %>
+      <div class="alert alert-success text-center"><%= success %></div>
+    <% } %>
+    <% if (summary) { %>
+      <div class="alert alert-info">
+        ทั้งหมด: <b><%= summary.total %></b> |
+        อ่านได้: <b><%= summary.readable %></b> |
+        พบในระบบ: <b><%= summary.found %></b> |
+        เพิ่มใหม่: <b><%= summary.inserted %></b> |
+        ซ้ำ: <b><%= summary.duplicates %></b> |
+        ไม่พบ: <b><%= summary.notfound %></b>
+      </div>
     <% } %>
 
-    <form action="/classroom/add-students" method="POST" onsubmit="return validateForm();">
-  <div class="panel-38">
-    <!-- แถว: รหัสประจำตัว -->
-    <div class="line-38">
-      <div class="label-38">รหัสประจำตัว:</div>
-      <div class="field-38">
-        <input type="text" class="form-control"
-               name="studentIds"
-               placeholder="ใส่หลายคนคั่นด้วย comma เช่น 1001,1002,1003"
-               required>
-      </div>
-      <span class="required">*</span>
-    </div>
+    <!-- ใช้ form เดียวรองรับทั้ง "พิมพ์รหัส" และ "อัปโหลดไฟล์" -->
+    <form action="/classroom/add-students" method="POST" enctype="multipart/form-data" id="addForm">
+      <div class="panel-38">
 
-    <!-- แถว: ชื่อชั้นเรียน -->
-    <div class="line-38">
-      <div class="label-38">ชื่อชั้นเรียน:</div>
-      <div class="field-38">
-        <input type="text" class="form-control" value="<%= classroomName %>" readonly>
-        <input type="hidden" name="ClassroomId" value="<%= classroomId %>">
+        <!-- ห้องเรียน -->
+        <div class="line-38">
+          <div class="label-38">ชื่อชั้นเรียน:</div>
+          <div class="field-38">
+            <input type="text" class="form-control" value="<%= classroomName %>" readonly>
+            <input type="hidden" name="ClassroomId" value="<%= classroomId %>">
+          </div>
+          <span class="required">*</span>
+        </div>
+
+        <!-- ตัวเลือกโหมด -->
+        <div class="line-38">
+          <div class="label-38">วิธีเพิ่ม:</div>
+          <div class="field-38">
+            <select id="mode" class="form-select">
+              <option value="text" selected>พิมพ์/วางรหัสนักเรียน</option>
+              <option value="file">อัปโหลดไฟล์ Excel/CSV (คอลัมน์แรก)</option>
+            </select>
+          </div>
+          <span></span>
+        </div>
+
+        <!-- โหมด: พิมพ์/วางรหัส -->
+        <div id="mode-text">
+          <div class="line-38">
+            <div class="label-38">รหัสนักเรียน:</div>
+            <div class="field-38">
+              <!-- ใช้ textarea (แก้บั๊กจากเดิมที่ JS หา textarea ไม่เจอ) -->
+              <textarea class="form-control" name="studentIds" rows="4"
+                placeholder="ใส่หลายคนคั่นด้วย comma, เว้นบรรทัด หรือช่องว่าง เช่น
+65010001, 65010002
+65010003 65010004"></textarea>
+            </div>
+            <span class="required">*</span>
+          </div>
+
+          <div class="hint-box mb-3">
+            เคล็ดลับ: วางจาก Excel/Google Sheets ได้เลย ระบบจะแยกด้วย comma / เว้นบรรทัด / ช่องว่างให้อัตโนมัติ
+          </div>
+        </div>
+
+        <!-- โหมด: อัปโหลดไฟล์ -->
+        <div id="mode-file" style="display:none;">
+          <div class="line-38">
+            <div class="label-38">ไฟล์ Excel/CSV:</div>
+            <div class="field-38">
+              <input type="file" class="form-control" name="file" accept=".xlsx,.xls,.csv">
+            </div>
+            <span class="required">*</span>
+          </div>
+
+          <div class="hint-box mb-2">
+            อ่านจาก <b>คอลัมน์แรก</b> ของชีทแรก แนะนำตั้งคอลัมน์เป็น <b>Text</b> เพื่อกันเลข 0 นำหน้าหาย
+          </div>
+
+          <div class="mb-3">
+            <div class="small text-muted mb-1">ตัวอย่างไฟล์ .csv</div>
+            <pre class="sample">studentid
+65010001
+65010002
+65010003</pre>
+          </div>
+        </div>
+
       </div>
-      <span class="required">*</span>
-    </div>
+
+      <div class="btn-group">
+        <button type="submit" class="btn btn-primary">บันทึก</button>
+        <a href="/classroom/<%= classroomId %>/students" class="btn btn-secondary">ย้อนกลับ</a>
+      </div>
+    </form>
   </div>
 
-  <center>
-    <button type="submit" class="btn btn-primary">บันทึก</button>
-    <a href="/classroom/<%= classroomId %>/students" class="btn btn-secondary">ย้อนกลับ</a>
-  </center>
-</form>
- 
+  <script>
+    // สลับโหมด
+    const modeSelect = document.getElementById('mode');
+    const modeText = document.getElementById('mode-text');
+    const modeFile = document.getElementById('mode-file');
+    modeSelect.addEventListener('change', () => {
+      const m = modeSelect.value;
+      modeText.style.display = (m === 'text') ? '' : 'none';
+      modeFile.style.display = (m === 'file') ? '' : 'none';
+    });
+
+    // ตรวจฟอร์มก่อนส่ง: ต้องมีอย่างน้อย 1 วิธี (ข้อความหรือไฟล์)
+    document.getElementById('addForm').addEventListener('submit', function(e){
+      const classroomId = document.querySelector('input[name="ClassroomId"]').value.trim();
+      const idsText = (document.querySelector('textarea[name="studentIds"]')?.value || '').trim();
+      const fileInput = document.querySelector('input[name="file"]');
+      const hasFile = fileInput && fileInput.files && fileInput.files.length > 0;
+
+      if (!classroomId) {
+        e.preventDefault();
+        return alert('ขาดรหัสห้องเรียน');
+      }
+
+      // ต้องมี idsText หรือ hasFile อย่างน้อยหนึ่ง
+      if (!idsText && !hasFile) {
+        e.preventDefault();
+        const m = modeSelect.value;
+        if (m === 'text') {
+          alert('กรุณากรอกรหัสนักเรียน หรือสลับไปแท็บอัปโหลดไฟล์');
+        } else {
+          alert('กรุณาเลือกไฟล์ Excel/CSV หรือสลับไปแท็บพิมพ์รหัส');
+        }
+        return;
+      }
+
+      // ยืนยัน
+      if (!confirm('คุณต้องการบันทึกข้อมูลนี้ใช่หรือไม่?')) {
+        e.preventDefault();
+      }
+    });
+  </script>
+
   <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0-alpha1/dist/js/bootstrap.bundle.min.js"></script>
-  <% if (error) { %>
-    <script>
-      alert("<%= error %>");
-    </script>
-  <% } %>
 </body>
 </html>

@@ -1,3 +1,4 @@
+<!DOCTYPE html>
 <html lang="th">
 <head>
   <meta charset="UTF-8" />
@@ -6,16 +7,12 @@
   <link rel="stylesheet" href="/style.css" />
   <title>แก้ไขห้องเรียน</title>
   <style>
-    .btn-group {
-      display: flex;
-      justify-content: center;
-      gap: 15px;
-      margin-top: 25px;
-    }
-    .btn-group button,
-    .btn-group a.btn {
-      min-width: 150px;
-    }
+    .form-row { margin-bottom: 15px; display:flex; align-items:center; gap:10px; }
+    .form-row label { width: 170px; font-weight:600; margin:0; }
+    .form-row input[type="text"], .form-row input[type="number"], .form-row select { flex:1; }
+    .btn-group { display: flex; justify-content: center; gap: 15px; margin-top: 25px; }
+    .btn-group button, .btn-group a.btn { min-width: 150px; }
+    .required { color: red; font-weight: bold; margin-left: 4px; }
   </style>
 </head>
 <body>
@@ -23,64 +20,172 @@
     <%- include('partials/navbar', { currentUser: currentUser, currentRole: currentRole }) %>
   <% } %>
 
-  <div class="container" style="max-width: 600px; margin: 20px auto; padding: 0 15px;">
-    <h2>แก้ไขข้อมูลห้องเรียน</h2>
+  <div class="container" style="max-width: 640px; margin: 20px auto; padding: 0 15px;">
+    <h2 class="mb-4 text-center">แก้ไขข้อมูลห้องเรียน</h2>
 
     <% if (error) { %>
-      <p style="color:red; text-align:center;"><%= error %></p>
+      <p class="text-danger text-center"><%= error %></p>
     <% } %>
 
-    <form action="/classroom/edit/<%= classroom.classroomid %>" method="POST" onsubmit="return confirm('คุณต้องการบันทึกการเปลี่ยนแปลงใช่หรือไม่?');">
-  <div class="form-row">
-    <label>ชื่อห้องเรียน:</label>
-    <input 
-      type="text" 
-      name="ClassroomName" 
-      value="<%= classroom.classroomname %>" 
-      required
-    >
+    <form action="/classroom/edit/<%= classroom.classroomid %>" method="POST"
+          onsubmit="return validateForm() && confirm('คุณต้องการบันทึกการเปลี่ยนแปลงใช่หรือไม่?');">
+
+      <div class="form-row">
+        <label>ชื่อห้องเรียน:</label>
+        <input type="text" name="ClassroomName" value="<%= classroom.classroomname %>" required>
+        <span class="required">*</span>
+      </div>
+
+      <div class="form-row">
+        <label>เลขห้อง:</label>
+        <input type="text" name="RoomNumber" value="<%= classroom.roomnumber %>" required>
+        <span class="required">*</span>
+      </div>
+
+      <div class="form-row">
+        <label>คำอธิบายชั้นเรียน:</label>
+        <input type="text" name="Description" value="<%= classroom.description %>" required>
+        <span class="required">*</span>
+      </div>
+
+      <div class="form-row">
+        <label>เปอร์เซ็นต์เข้าเรียนขั้นต่ำ:</label>
+        <input type="number" name="MinAttendancePercent" min="0" max="100"
+               value="<%= classroom.minattendancepercent %>" required> <span>%</span>
+        <span class="required">*</span>
+      </div>
+
+      <!-- ✅ ภาคเรียน: ปี พ.ศ. + ภาค (แทน term_id) -->
+      <div class="form-row">
+        <label>ปีการศึกษา (พ.ศ.) / ภาค:</label>
+        <%
+          // ถ้า server ไม่ได้ส่ง yearOptions มา ให้สร้างย้อนหลัง 8 ปีอัตโนมัติ
+          const _nowTh = (new Date()).getFullYear() + 543;
+          const _yearOptions = (typeof yearOptions !== 'undefined' && Array.isArray(yearOptions) && yearOptions.length)
+            ? yearOptions
+            : Array.from({length: 8}, (_,i) => _nowTh - i);
+          const _semesters = (typeof semesters !== 'undefined' && Array.isArray(semesters) && semesters.length)
+            ? semesters
+            : [1,2,3];
+        %>
+        <div class="d-flex align-items-center gap-2">
+          <select name="academic_year" class="form-control w-auto" required>
+            <option value="">ปี</option>
+            <% _yearOptions.forEach(y => { %>
+              <option value="<%= y %>" <%= (Number(classroom.academic_year) === Number(y) ? 'selected' : '') %>><%= y %></option>
+            <% }) %>
+          </select>
+
+          <select name="semester_no" class="form-control w-auto" required>
+            <option value="">ภาค</option>
+            <% _semesters.forEach(s => { %>
+              <option value="<%= s %>" <%= (Number(classroom.semester) === Number(s) ? 'selected' : '') %>><%= s %></option>
+            <% }) %>
+          </select>
+        </div>
+        <span class="required">*</span>
+      </div>
+
+      <!-- ✅ วันเรียน -->
+      <div class="form-row">
+        <label>วันเรียน:</label>
+        <%
+          // รองรับทั้งที่เคยเก็บเป็นตัวเลข 0-6 หรือเป็นคำไทย
+          const weekdayTh = ['อาทิตย์','จันทร์','อังคาร','พุธ','พฤหัสบดี','ศุกร์','เสาร์'];
+          const currentDow = (/^[0-6]$/.test(String(classroom.day_of_week)))
+              ? weekdayTh[Number(classroom.day_of_week)]
+              : (classroom.day_of_week || '');
+          const dayChoices = ['จันทร์','อังคาร','พุธ','พฤหัสบดี','ศุกร์']; // ถ้าต้องการรวมเสาร์-อาทิตย์ ให้ใส่เพิ่ม
+        %>
+        <select name="day_of_week" class="form-control" required>
+          <option value="">-- เลือกวัน --</option>
+          <% dayChoices.forEach(d => { %>
+            <option value="<%= d %>" <%= (currentDow === d ? 'selected' : '') %>><%= d %></option>
+          <% }) %>
+        </select>
+        <span class="required">*</span>
+      </div>
+
+      <!-- เวลาเริ่มเรียน: dropdown ชั่วโมง/นาที -->
+      <div class="form-row">
+        <label>เวลาเริ่มเรียน:</label>
+        <div class="d-flex gap-2">
+          <% const st = (classroom.start_time || '00:00').toString().slice(0,5).split(':'); %>
+          <select name="start_hour" class="form-control w-auto" required>
+            <option value="">ชั่วโมง</option>
+            <% for (let h = 0; h < 24; h++) { const hh = ('0'+h).slice(-2); %>
+              <option value="<%= hh %>" <%= st[0]===hh ? 'selected' : '' %>><%= hh %></option>
+            <% } %>
+          </select>
+          <select name="start_minute" class="form-control w-auto" required>
+            <option value="">นาที</option>
+            <% for (let m = 0; m < 60; m++) { const mm = ('0'+m).slice(-2); %>
+              <option value="<%= mm %>" <%= st[1]===mm ? 'selected' : '' %>><%= mm %></option>
+            <% } %>
+          </select>
+        </div>
+        <span class="required">*</span>
+      </div>
+
+      <!-- เวลาเลิกเรียน: dropdown ชั่วโมง/นาที -->
+      <div class="form-row">
+        <label>เวลาเลิกเรียน:</label>
+        <div class="d-flex gap-2">
+          <% const et = (classroom.end_time || '00:00').toString().slice(0,5).split(':'); %>
+          <select name="end_hour" class="form-control w-auto" required>
+            <option value="">ชั่วโมง</option>
+            <% for (let h = 0; h < 24; h++) { const hh = ('0'+h).slice(-2); %>
+              <option value="<%= hh %>" <%= et[0]===hh ? 'selected' : '' %>><%= hh %></option>
+            <% } %>
+          </select>
+          <select name="end_minute" class="form-control w-auto" required>
+            <option value="">นาที</option>
+            <% for (let m = 0; m < 60; m++) { const mm = ('0'+m).slice(-2); %>
+              <option value="<%= mm %>" <%= et[1]===mm ? 'selected' : '' %>><%= mm %></option>
+            <% } %>
+          </select>
+        </div>
+        <span class="required">*</span>
+      </div>
+
+      <center class="btn-group">
+        <button type="submit" class="btn btn-primary">บันทึกการเปลี่ยนแปลง</button>
+        <a href="/classroom" class="btn btn-secondary">ย้อนกลับ</a>
+      </center>
+    </form>
   </div>
 
-  <div class="form-row">
-    <label>เลขห้อง:</label>
-    <input 
-      type="text" 
-      name="RoomNumber" 
-      value="<%= classroom.roomnumber %>" 
-      required
-    >
-  </div>
+  <script>
+    function validateForm() {
+      const year = document.querySelector('select[name="academic_year"]').value.trim();
+      const sem  = document.querySelector('select[name="semester_no"]').value.trim();
+      const dow  = document.querySelector('select[name="day_of_week"]').value.trim();
+      const sh   = document.querySelector('select[name="start_hour"]').value.trim();
+      const sm   = document.querySelector('select[name="start_minute"]').value.trim();
+      const eh   = document.querySelector('select[name="end_hour"]').value.trim();
+      const em   = document.querySelector('select[name="end_minute"]').value.trim();
 
-  <div class="form-row">
-    <label>คำอธิบาย:</label>
-    <input 
-      type="text" 
-      name="Description" 
-      value="<%= classroom.description %>" 
-      required
-    >
-  </div>
-
-  <div class="form-row">
-    <label>เปอร์เซ็นต์เข้าเรียนขั้นต่ำ:</label>
-    <input 
-      type="number" 
-      name="MinAttendancePercent" 
-      min="0" 
-      max="100" 
-      value="<%= classroom.minattendancepercent %>" 
-      required
-      
-    >%
-  </div>
-
-  <center>
-    <button type="submit" class="btn btn-primary">บันทึกการเปลี่ยนแปลง</button>
-    <a href="/classroom" class="btn btn-secondary">ย้อนกลับ</a>
-  </center>
-</form>
-
-  </div>
+      if (!year || !sem) {
+        alert('กรุณาเลือก ปีการศึกษา และภาคการศึกษา');
+        return false;
+      }
+      if (!dow) {
+        alert('กรุณาเลือกวันเรียน');
+        return false;
+      }
+      if (!sh || !sm || !eh || !em) {
+        alert('กรุณาเลือกเวลาเริ่มเรียนและเวลาเลิกเรียนให้ครบ');
+        return false;
+      }
+      const start = Number(sh) * 60 + Number(sm);
+      const end   = Number(eh) * 60 + Number(em);
+      if (end <= start) {
+        alert('เวลาเลิกเรียนต้องมากกว่าเวลาเริ่มเรียน');
+        return false;
+      }
+      return true;
+    }
+  </script>
 
   <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0-alpha1/dist/js/bootstrap.bundle.min.js"></script>
 </body>

@@ -6,43 +6,38 @@
   <title>สร้างห้องเรียน</title>
   <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0-alpha1/dist/css/bootstrap.min.css" rel="stylesheet" />
   <link rel="stylesheet" href="/style.css" />
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/flatpickr/dist/flatpickr.min.css">
+  <script src="https://cdn.jsdelivr.net/npm/flatpickr"></script>
   <style>
-    .required {
-      color: red;
-      font-weight: bold;
-      margin-left: 4px;
-    }
-    .form-group {
-      margin-bottom: 15px;
-    }
-    label {
-      font-weight: 500;
-    }
-    .btn-group {
-      display: flex;
-      justify-content: center;
-      gap: 15px;
-      margin-top: 25px;
-    }
-    .btn-group button,
-    .btn-group a.btn {
-      min-width: 150px;
-    }
+    .required { color: red; font-weight: bold; margin-left: 4px; }
+    .form-group { margin-bottom: 15px; }
+    label { font-weight: 500; }
+    .btn-group { display: flex; justify-content: center; gap: 15px; margin-top: 25px; }
+    .btn-group button, .btn-group a.btn { min-width: 150px; }
   </style>
   <script>
     function validateForm() {
       const form = document.forms["addClassForm"];
-      const requiredFields = ["ClassroomName", "RoomNumber", "Description", "MinAttendancePercent"];
-
+      const requiredFields = [
+        "ClassroomName",
+        "RoomNumber",
+        "Description",
+        "MinAttendancePercent",
+        "academic_year",   // ✅ เช็คปีการศึกษา (พ.ศ.)
+        "semester_no"      // ✅ เช็คภาค 1–3
+      ];
       for (let field of requiredFields) {
         if (!form[field].value.trim()) {
           alert("กรุณากรอกข้อมูลให้ครบทุกช่อง");
           return false;
         }
       }
-
       return confirm("คุณต้องการบันทึกข้อมูลนี้ใช่หรือไม่?");
     }
+  </script>
+  <script>
+    flatpickr("#start_time", { enableTime: true, noCalendar: true, dateFormat: "H:i", time_24hr: true });
+    flatpickr("#end_time",   { enableTime: true, noCalendar: true, dateFormat: "H:i", time_24hr: true });
   </script>
 </head>
 <body>
@@ -58,7 +53,6 @@
     <% } %>
 
     <form name="addClassForm" action="/classroom/add" method="POST" onsubmit="return validateForm();">
-      
       <div class="form-row">
         <label>ชื่อห้องเรียน:</label>
         <input type="text" name="ClassroomName" required><span class="required">*</span>
@@ -74,11 +68,78 @@
         <input type="text" name="Description" required><span class="required">*</span>
       </div>
 
-      <div class="form-row"> 
-        <label >เปอร์เซ็นต์เข้าเรียนขั้นต่ำ:</label>
+      <div class="form-row">
+        <label>เปอร์เซ็นต์เข้าเรียนขั้นต่ำ:</label>
         <input type="number" name="MinAttendancePercent" value="75" min="0" max="100" required>%<span class="required">*</span>
       </div>
 
+      <!-- ✅ ภาคเรียน: ปีการศึกษา (พ.ศ.) + ภาค -->
+      <div class="form-row">
+        <label>ปีการศึกษา (พ.ศ.):</label>
+        <select name="academic_year" class="form-control d-inline-block w-auto me-2" required>
+          <option value="">ปี</option>
+          <% yearOptions.forEach(y => { %>
+            <option value="<%= y %>"><%= y %></option>
+          <% }) %>
+        </select>
+
+        <label class="ms-2">ภาค:</label>
+        <select name="semester_no" class="form-control d-inline-block w-auto ms-2" required>
+          <option value="">ภาค</option>
+          <% semesters.forEach(s => { %>
+            <option value="<%= s %>"><%= s %></option>
+          <% }) %>
+        </select>
+        <span class="required">*</span>
+      </div>
+
+      <div class="mb-3">
+        <label class="form-label">วันเรียน:</label>
+        <select class="form-control" name="day_of_week" required>
+          <option value="">-- เลือกวัน --</option>
+          <option value="จันทร์">จันทร์</option>
+          <option value="อังคาร">อังคาร</option>
+          <option value="พุธ">พุธ</option>
+          <option value="พฤหัสบดี">พฤหัสบดี</option>
+          <option value="ศุกร์">ศุกร์</option>
+        </select>
+      </div>
+
+      <div class="mb-3">
+        <label class="form-label">เวลาเริ่มเรียน:</label>
+        <div class="d-flex gap-2">
+          <select name="start_hour" class="form-control" required>
+            <option value="">ชั่วโมง</option>
+            <% for (let h = 0; h < 24; h++) { %>
+              <option value="<%= ('0' + h).slice(-2) %>"><%= ('0' + h).slice(-2) %></option>
+            <% } %>
+          </select>
+          <select name="start_minute" class="form-control" required>
+            <option value="">นาที</option>
+            <% for (let m = 0; m < 60; m++) { %>
+              <option value="<%= ('0' + m).slice(-2) %>"><%= ('0' + m).slice(-2) %></option>
+            <% } %>
+          </select>
+        </div>
+      </div>
+
+      <div class="mb-3">
+        <label class="form-label">เวลาเลิกเรียน:</label>
+        <div class="d-flex gap-2">
+          <select name="end_hour" class="form-control" required>
+            <option value="">ชั่วโมง</option>
+            <% for (let h = 0; h < 24; h++) { %>
+              <option value="<%= ('0' + h).slice(-2) %>"><%= ('0' + h).slice(-2) %></option>
+            <% } %>
+          </select>
+          <select name="end_minute" class="form-control" required>
+            <option value="">นาที</option>
+            <% for (let m = 0; m < 60; m++) { %>
+              <option value="<%= ('0' + m).slice(-2) %>"><%= ('0' + m).slice(-2) %></option>
+            <% } %>
+          </select>
+        </div>
+      </div>
 
       <center>
         <button type="submit" class="btn btn-primary">บันทึก</button>
@@ -90,4 +151,3 @@
   <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0-alpha1/dist/js/bootstrap.bundle.min.js"></script>
 </body>
 </html>
-

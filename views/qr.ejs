@@ -12,71 +12,96 @@
 
   .frame { max-width: 860px; margin: 0 auto; padding: 24px 24px 32px; }
 
-/* กล่องรวมหัวข้อ + QR ให้อยู่กลางทั้งก้อน */
-.qr-stack { display: flex; flex-direction: column; align-items: center; }
+  /* กล่องรวมหัวข้อ + QR ให้อยู่กลางทั้งก้อน */
+  .qr-stack { display: flex; flex-direction: column; align-items: center; }
 
-/* กล่องหัวข้อ ให้จัดซ้ายภายในตัวมันเอง แต่ทั้งก้อนอยู่กลาง */
-.meta { width: 420px; max-width: 90%; margin: 0 auto 8px; text-align: left; }
-.meta-row { display: flex; align-items: baseline; gap: 24px; font-size: 28px; line-height: 1.25; margin-bottom: 8px; }
-.meta-label { font-weight: 700; flex: 0 0 180px; }
-.meta-value { flex: 1 1 auto; min-width: 0; }
+  /* กล่องหัวข้อ ให้จัดซ้ายภายในตัวมันเอง แต่ทั้งก้อนอยู่กลาง */
+  .meta { width: 420px; max-width: 90%; margin: 0 auto 8px; text-align: left; }
+  .meta-row { display: flex; align-items: baseline; gap: 24px; font-size: 28px; line-height: 1.25; margin-bottom: 8px; }
+  .meta-label { font-weight: 700; flex: 0 0 180px; }
+  .meta-value { flex: 1 1 auto; min-width: 0; }
 
-/* กล่อง QR อยู่กลาง */
-.qr-box { width: 300px; height: 300px;  margin-top: 16px; display: flex; align-items: center; justify-content: center; }
-#qrcode canvas { width: 100% !important; height: 100% !important; }
-#timer { font-size: 1.25rem; text-align: center; color: #555; margin-top: 10px; }
+  /* กล่อง QR อยู่กลาง */
+  .qr-box { width: 300px; height: 300px;  margin-top: 16px; display: flex; align-items: center; justify-content: center; }
+  #qrcode canvas { width: 100% !important; height: 100% !important; }
+  #timer { font-size: 1.25rem; text-align: center; color: #555; margin-top: 10px; }
 
-@media (max-width: 576px) {
-  .meta-row { font-size: 22px; gap: 16px; }
-  .meta-label { flex-basis: 140px; }
-  .qr-box { width: 260px; height: 260px; }
-}
-</style>
+  @media (max-width: 576px) {
+    .meta-row { font-size: 22px; gap: 16px; }
+    .meta-label { flex-basis: 140px; }
+    .qr-box { width: 260px; height: 260px; }
+  }
+  </style>
 </head>
 <body>
   <% if (showNavbar) { %>
     <%- include('partials/navbar', { currentUser: currentUser, currentRole: currentRole }) %>
   <% } %>
 
-<div class="frame">
-  <div class="qr-stack">
-    <div class="meta">
-      <div class="meta-row">
-        <div class="meta-label">ชื่อชั้นเรียน</div>
-        <div class="meta-value"><%= classroomName || '-' %></div>
+  <div class="frame">
+    <div class="qr-stack">
+      <div class="meta">
+        <div class="meta-row">
+          <div class="meta-label">ชื่อชั้นเรียน</div>
+          <div class="meta-value"><%= classroomName || '-' %></div>
+        </div>
+        <div class="meta-row">
+          <div class="meta-label">อาจารย์</div>
+          <div class="meta-value"><%= teacherName || '-' %></div>
+        </div>
+        <div class="meta-row">
+          <div class="meta-label">วันที่</div>
+          <div class="meta-value"><%= displayDate %></div>
+        </div>
       </div>
-      <div class="meta-row">
-        <div class="meta-label">อาจารย์</div>
-        <div class="meta-value"><%= teacherName || '-' %></div>
+
+      <div class="qr-box"><div id="qrcode"></div></div>
+      <div id="timer">กำลังเตรียมโค้ด...</div>
+
+      <!-- ✅ แสดงนาทีผ่อนผัน + เวลาตัดสาย (ถ้ามี token/metaLate) -->
+      <div class="text-center mt-2" id="late-info">
+        <% if (typeof metaLate !== 'undefined' && metaLate) { %>
+          <p class="small mb-0">
+            ผ่อนผันสาย <strong><%= metaLate.grace_minutes %></strong> นาที
+            <% if (metaLate.late_cutoff_at) { %>
+              (ตัดสายที่
+              <strong>
+                <%= new Date(metaLate.late_cutoff_at)
+                      .toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit' }) %>
+              </strong>)
+            <% } %>
+          </p>
+        <% } %>
       </div>
-      <div class="meta-row">
-        <div class="meta-label">วันที่</div>
-        <div class="meta-value"><%= displayDate %></div>
+      <!-- ✅ จบส่วนแสดงเวลาตัดสาย -->
+
+      <p class="text-center text-muted mt-2 mb-0">QR Code จะอัปเดตอัตโนมัติ (one-time)</p>
+      <div class="text-center mt-2">
+        <small hidden >DEBUG URL: <a id="debug-url" href="#" target="_blank" rel="noopener"></a></small>
       </div>
     </div>
-
-    <div class="qr-box"><div id="qrcode"></div></div>
-    <div id="timer">กำลังเตรียมโค้ด...</div>
-    <p class="text-center text-muted mt-2 mb-0">QR Code จะอัปเดตอัตโนมัติ (one-time)</p>
-    <div class="text-center mt-2">
-    <small hidden>DEBUG URL: <a id="debug-url" href="#" target="_blank" rel="noopener"></a></small>
   </div>
-  </div>
-</div>
 
   <!-- ตารางรายชื่อนักเรียน -->
   <div class="container mt-5">
     <center>
-    <h3>สถานะการเข้าเรียนวันที่ <%= displayDate %></h3>
+      <h3>สถานะการเข้าเรียนวันที่ <%= displayDate %></h3>
     </center>
-    <div class="d-flex justify-content-center gap-3 mt-2">
-      <span class="badge rounded-pill text-bg-success px-3 py-2">
-        มาเรียน: <span id="present-count"><%= presentCount %></span>
-      </span>
-      <span class="badge rounded-pill text-bg-danger px-3 py-2">
-        ขาดเรียน: <span id="absent-count"><%= absentCount %></span>
-      </span>
-  </div>
+    <div class="d-flex justify-content-center gap-2 mt-2 flex-wrap">
+  <span class="badge rounded-pill text-bg-success px-3 py-2">
+    มาเรียน: <span id="present-count"><%= presentCount %></span>
+  </span>
+  <span class="badge rounded-pill text-bg-primary px-3 py-2">
+    ตรงเวลา: <span id="ontime-count"><%= onTimeCount %></span>
+  </span>
+  <span class="badge rounded-pill text-bg-warning px-3 py-2">
+    มาสาย: <span id="late-count"><%= lateCount %></span>
+  </span>
+  <span class="badge rounded-pill text-bg-danger px-3 py-2">
+    ขาดเรียน: <span id="absent-count"><%= absentCount %></span>
+  </span>
+</div>
+
     <table class="table table-bordered mt-3">
       <thead class="table-light">
         <tr>
@@ -93,11 +118,13 @@
             <td><%= student.fullname %></td>
             <td><%= student.checkin_time || '-' %></td>
             <td>
-              <% if (student.status === 'Present') { %>
-                <span class="text-success fw-bold">มาเรียน</span>
-              <% } else { %>
-                <span class="text-danger fw-bold">ขาดเรียน</span>
-              <% } %>
+                 <% if (student.status === 'Present') { %>
+    <span class="badge rounded-pill text-bg-success px-3 py-2">มาเรียน</span>
+  <% } else if (student.status === 'Late') { %>
+    <span class="badge rounded-pill text-bg-warning px-3 py-2">มาสาย</span>
+  <% } else { %>
+    <span class="badge rounded-pill text-bg-danger px-3 py-2">ขาดเรียน</span>
+  <% } %>
             </td>
           </tr>
         <% }) %>
@@ -107,122 +134,130 @@
   </div>
 
   <script>
-    // ======= ค่าจาก server (ประกาศครั้งเดียว) =======
-    const classroomId  = "<%= classroomId %>";
-    const selectedDate = "<%= selectedDate %>";
+  // ======= ค่าจาก server (ประกาศครั้งเดียว) =======
+  const classroomId  = "<%= classroomId %>";
+  const selectedDate = "<%= selectedDate %>";
+  const parentToken  = "<%= token || '' %>";   // โทเคนหลักของคาบนี้
 
-    const timerElement = document.getElementById('timer');
-    const qrContainer  = document.getElementById('qrcode');
-    const debugA       = document.getElementById('debug-url');
+  const timerElement = document.getElementById('timer');
+  const qrContainer  = document.getElementById('qrcode');
+  const debugA       = document.getElementById('debug-url');
 
-    const TTL_FALLBACK = 10; // เผื่อกรณี backend ไม่ส่ง ttl
+  const TTL_FALLBACK = 10; // เผื่อกรณี backend ไม่ส่ง ttl
 
-    let expiresAtMs  = 0;    // เวลา token หมดอายุ (ms)
-    let currentToken = null; // token ปัจจุบัน
+  let expiresAtMs  = 0;    // เวลา token หมดอายุ (ms)
+  let currentToken = null; // token ปัจจุบัน
 
-    function drawQR(url) {
-      qrContainer.innerHTML = '';
-      QRCode.toCanvas(url, { width: 300 }, (err, canvas) => {
-        if (err) return console.error(err);
-        qrContainer.appendChild(canvas);
-      });
-    }
+  function drawQR(url) {
+    qrContainer.innerHTML = '';
+    QRCode.toCanvas(url, { width: 300 }, (err, canvas) => {
+      if (err) return console.error(err);
+      qrContainer.appendChild(canvas);
+    });
+  }
 
-    function renderCountdown() {
-      if (!expiresAtMs) return;
-      const diffMs  = expiresAtMs - Date.now();
-      const secLeft = Math.max(0, Math.ceil(diffMs / 1000));
-      timerElement.textContent = `เหลือเวลา ${secLeft} วินาที`;
-      if (secLeft <= 0) {
-        getToken(true); // หมดเวลา → ขอ token ใหม่ทันที
-      }
-    }
-
-    // ดึงโทเคนจากเซิร์ฟเวอร์ (backend ส่ง {token,url,ttl})
-    async function getToken(force = false) {
-      try {
-        const res  = await fetch(`/qr/${classroomId}/token${force ? '?force=1' : ''}`, { cache: 'no-store' });
-        const data = await res.json();
-
-        currentToken = data.token;
-        drawQR(data.url);
-        debugA.textContent = data.url;
-        debugA.href = data.url;
-
-        const ttlSec = Number(data.ttl) || TTL_FALLBACK;
-        expiresAtMs  = Date.now() + ttlSec * 1000;
-        renderCountdown();
-      } catch (err) {
-        console.error('โหลด token ผิดพลาด:', err);
-        timerElement.textContent = 'โหลดโค้ดไม่สำเร็จ';
-      }
-    }
-
-    // เช็คสถานะโทเคนทุก 1 วิ (ถ้ามีคนยืนยันแล้วให้รีเฟรชทันที)
-    async function pollStatus() {
-      if (!currentToken) return;
-      try {
-        const res  = await fetch(`/api/qr-status/${classroomId}?token=${encodeURIComponent(currentToken)}`, { cache: 'no-store' });
-        const data = await res.json();
-        if (data.is_used === true || data.exists === false) {
-          await getToken(true);
-        }
-      } catch (e) {
-        console.warn('qr-status error:', e);
-      }
-    }
-
-    // รีเฟรชตารางสถานะนักเรียนทุก 1 วิ
-    async function refreshAttendanceTable() {
-    try {
-      const res  = await fetch(`/api/classroom/${classroomId}/attendance?date=${encodeURIComponent(selectedDate)}`, { cache: 'no-store' });
-      const data = await res.json();
-      if (!data || !data.students) return;
-
-      // สร้างแถวใหม่
-      const rows = data.students.map(s => {
-        const isPresent  = s.status === 'Present';
-        const statusHtml = isPresent
-          ? '<span class="badge rounded-pill text-bg-success px-3 py-2">มาเรียน</span>' 
-          : '<span class="badge rounded-pill text-bg-danger px-3 py-2">ขาดเรียน</span>';
-        const time = s.checkin_time || '-';
-        return `
-          <tr>
-            <td>${s.studentid}</td>
-            <td>${s.fullname}</td>
-            <td>${time}</td>
-            <td>${statusHtml}</td>
-          </tr>
-        `;
-      }).join('');
-
-      // อัปเดตตาราง
-      document.getElementById('student-tbody').innerHTML = rows;
-
-      // 🟢 อัปเดตจำนวนแบบเรียลไทม์
-      const present = (typeof data.present_count === 'number')
-        ? data.present_count
-        : data.students.filter(s => s.status === 'Present').length;
-      const absent = (typeof data.absent_count === 'number')
-        ? data.absent_count
-        : (data.students.length - present);
-
-      const presentEl = document.getElementById('present-count');
-      const absentEl  = document.getElementById('absent-count');
-      if (presentEl) presentEl.textContent = String(present);
-      if (absentEl)  absentEl.textContent  = String(absent);
-    } catch (e) {
-      console.error('refreshAttendanceTable error:', e);
+  function renderCountdown() {
+    if (!expiresAtMs) return;
+    const diffMs  = expiresAtMs - Date.now();
+    const secLeft = Math.max(0, Math.ceil(diffMs / 1000));
+    timerElement.textContent = `เหลือเวลา ${secLeft} วินาที`;
+    if (secLeft <= 0) {
+      getToken(true); // หมดเวลา → ขอ token ใหม่ทันที
     }
   }
 
-    // เริ่มทำงาน
-    getToken(true);
-    setInterval(renderCountdown, 1000);
-    setInterval(pollStatus, 1000);
-    refreshAttendanceTable();
-    setInterval(refreshAttendanceTable, 1000);
-  </script>
+  // ✅ ดึงโทเคน 10 วิ โดยแนบ parent token ของคาบ (เพื่อคัดลอก grace_minutes/late_cutoff_at)
+  async function getToken(force = false) {
+    try {
+      const qs = new URLSearchParams();
+      if (parentToken) qs.set('parent', parentToken);
+      if (force) qs.set('force', '1');
+
+      const res  = await fetch(`/qr/${classroomId}/token?` + qs.toString(), { cache: 'no-store' });
+      const data = await res.json();
+
+      currentToken = data.token;
+      drawQR(data.url);
+      debugA.textContent = data.url;
+      debugA.href = data.url;
+
+      const ttlSec = Number(data.ttl) || TTL_FALLBACK;
+      expiresAtMs  = Date.now() + ttlSec * 1000;
+      renderCountdown();
+    } catch (err) {
+      console.error('โหลด token ผิดพลาด:', err);
+      timerElement.textContent = 'โหลดโค้ดไม่สำเร็จ';
+    }
+  }
+
+  // เช็คสถานะโทเคนทุก 1 วิ (ถ้ามีคนยืนยันแล้วให้รีเฟรชทันที)
+  async function pollStatus() {
+    if (!currentToken) return;
+    try {
+      const res  = await fetch(`/api/qr-status/${classroomId}?token=${encodeURIComponent(currentToken)}`, { cache: 'no-store' });
+      const data = await res.json();
+      if (data.is_used === true || data.exists === false) {
+        await getToken(true);
+      }
+    } catch (e) {
+      console.warn('qr-status error:', e);
+    }
+  }
+
+  // รีเฟรชตารางสถานะนักเรียนทุก 1 วิ
+  async function refreshAttendanceTable() {
+  try {
+    const res  = await fetch(`/api/classroom/${classroomId}/attendance?date=${encodeURIComponent(selectedDate)}`, { cache: 'no-store' });
+    const data = await res.json();
+    if (!data || !data.students) return;
+
+    const rows = data.students.map(s => {
+      const statusHtml =
+        s.status === 'Present' ? '<span class="badge rounded-pill text-bg-success px-3 py-2">มาเรียน</span>' :
+        s.status === 'Late'    ? '<span class="badge rounded-pill text-bg-warning px-3 py-2">มาสาย</span>' :
+                                 '<span class="badge rounded-pill text-bg-danger px-3 py-2">ขาดเรียน</span>';
+      const time = s.checkin_time || '-';
+      return `
+        <tr>
+          <td>${s.studentid}</td>
+          <td>${s.fullname}</td>
+          <td>${time}</td>
+          <td>${statusHtml}</td>
+        </tr>
+      `;
+    }).join('');
+
+    document.getElementById('student-tbody').innerHTML = rows;
+
+    // 🟢 อัปเดตจำนวนแบบแยกและรวม (นับ 'Late' รวมเป็นมาเรียนด้วย)
+    const onTime = data.students.filter(s => s.status === 'Present').length;
+    const late   = data.students.filter(s => s.status === 'Late').length;
+    const present = onTime + late;                        // มาเรียน (รวมสาย)
+    const absent  = data.students.length - present;
+
+    const presentEl = document.getElementById('present-count');
+    const ontimeEl  = document.getElementById('ontime-count');
+    const lateEl    = document.getElementById('late-count');
+    const absentEl  = document.getElementById('absent-count');
+
+    if (presentEl) presentEl.textContent = String(present);
+    if (ontimeEl)  ontimeEl.textContent  = String(onTime);
+    if (lateEl)    lateEl.textContent    = String(late);
+    if (absentEl)  absentEl.textContent  = String(absent);
+  } catch (e) {
+    console.error('refreshAttendanceTable error:', e);
+  }
+}
+
+
+  // เริ่มทำงาน
+  getToken(true);
+  setInterval(renderCountdown, 1000);
+  setInterval(pollStatus, 1000);
+  refreshAttendanceTable();
+  setInterval(refreshAttendanceTable, 1000);
+</script>
+
 
   <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0-alpha1/dist/js/bootstrap.bundle.min.js"></script>
 </body>

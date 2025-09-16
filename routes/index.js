@@ -4,6 +4,13 @@ const pool = require('../db/pool');
 const { requireRole, requireAnyRole, requireMasterAdmin } = require('../middlewares/auth');
 const qr = require('qrcode');
 const { v4: uuidv4 } = require('uuid');
+const multer = require('multer');
+const xlsx = require('xlsx');
+const upload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 5 * 1024 * 1024 } // 5MB
+});
+
 // ===== Auto clean attendancetoken every 30s =====
 const TOKEN_TTL_SECONDS = 10;      // ให้ตรงกับ TTL ใน /qr/:id/token
 const CLEAN_INTERVAL_MS  = 900_000; // 1 ชั่วโมง 3_600_000 | 30 นาที 1_800_000 | 15 นาที 900_000
@@ -16,6 +23,87 @@ setInterval(() => {
     [TOKEN_TTL_SECONDS]
   ).catch(e => console.error('token cleanup error:', e));
 }, CLEAN_INTERVAL_MS);
+
+// ===== Helpers =====
+
+// รวมค่าชั่วโมง/นาทีจาก body ให้เป็น 'HH:MM'
+// ใช้กับคู่ฟิลด์: start_hour/start_minute และ end_hour/end_minute
+function resolveTimeFromBody(body, prefix) {
+  // prefix = 'start' หรือ 'end'
+  // รองรับกรณีมี field เดียวเช่น start_time = '09:30' (ถ้าเผื่อใช้ input type="time")
+  if (body[`${prefix}_time`]) {
+    const s = String(body[`${prefix}_time`]).slice(0,5);
+    return /^\d{2}:\d{2}$/.test(s) ? s : null;
+  }
+
+  const hh = String(body[`${prefix}_hour`]   ?? '').padStart(2, '0');
+  const mm = String(body[`${prefix}_minute`] ?? '').padStart(2, '0');
+
+  if (!/^\d{2}$/.test(hh) || !/^\d{2}$/.test(mm)) return null;
+
+  const h = Number(hh), m = Number(mm);
+  if (Number.isNaN(h) || Number.isNaN(m) || h < 0 || h > 23 || m < 0 || m > 59) return null;
+
+  return `${hh}:${mm}`;  // ตัวอย่าง: '09:30'
+}
+
+function computeTermDates(academicYearBE, semesterNo) {
+  const yearAD = Number(academicYearBE) - 543;
+  const s = Number(semesterNo);
+// ภาค 1 : 1 มิ.ย. ปีนั้น  – 31 ต.ค. ปีนั้น        
+// ภาค 2 : 1 พ.ย. ปีนั้น  – 31 มี.ค. ปีถัดไป      
+// ภาค 3 : 1 เม.ย. ปีถัดไป – 31 พ.ค. ปีถัดไป     
+  let start_date, end_date;
+  if (s === 1) {
+    start_date = `${yearAD}-06-01`;
+    end_date   = `${yearAD}-10-31`;
+  } else if (s === 2) {
+    start_date = `${yearAD}-11-01`;
+    end_date   = `${yearAD + 1}-03-31`;
+  } else if (s === 3) {
+    start_date = `${yearAD + 1}-04-01`;
+    end_date   = `${yearAD + 1}-05-31`;
+  } else {
+    throw new Error('Invalid semester number');
+  }
+  return { start_date, end_date };
+}
+
+// หา (หรือสร้าง) term_id จาก ปีการศึกษา (พ.ศ.) และภาค พร้อมกรอก start/end date
+async function getOrCreateTermId(academicYearBE, semesterNo) {
+  const y = Number(academicYearBE);
+  const s = Number(semesterNo);
+
+  // 1) ลองหา term เดิม
+  const sel = await pool.query(
+    `SELECT term_id, start_date, end_date
+       FROM term
+      WHERE academic_year = $1 AND semester_no = $2`,
+    [y, s]
+  );
+  if (sel.rows.length) {
+    const row = sel.rows[0];
+    // กันกรณีข้อมูลเก่ามี NULL ให้เติมให้ครบ
+    if (!row.start_date || !row.end_date) {
+      const { start_date, end_date } = computeTermDates(y, s);
+      await pool.query(
+        `UPDATE term SET start_date = $1, end_date = $2 WHERE term_id = $3`,
+        [start_date, end_date, row.term_id]
+      );
+    }
+    return row.term_id;
+  }
+
+  // 2) ไม่เจอ -> คำนวณช่วงเวลาแล้วสร้างใหม่
+  const { start_date, end_date } = computeTermDates(y, s);
+  const ins = await pool.query(
+    `INSERT INTO term (academic_year, semester_no, start_date, end_date)
+     VALUES ($1, $2, $3, $4)
+     RETURNING term_id`,
+    [y, s, start_date, end_date]
+  );
+  return ins.rows[0].term_id;
+}
 //------------------------------------------------------------------
 //--------------------------LOGIN----------------------------------
 //------------------------------------------------------------------
@@ -393,47 +481,234 @@ router.post('/admin/delete/:role/:id', requireRole('admin'), async (req, res) =>
 router.get('/classroom', requireAnyRole(['teacher', 'student']), async (req, res) => {
   try {
     const role = req.session.role;
-    let classrooms = [];
 
+    // 1) หา "เทอมปัจจุบัน" เป็น default (ถ้าไม่มีให้ใช้เทอมล่าสุดใน term)
+    const { rows: curRows } = await pool.query(`
+      SELECT academic_year, semester_no
+      FROM term
+      WHERE (start_date IS NOT NULL AND end_date IS NOT NULL
+             AND CURRENT_DATE BETWEEN start_date AND end_date)
+      ORDER BY academic_year DESC, semester_no DESC
+      LIMIT 1
+    `);
+    const { rows: lastRows } = await pool.query(`
+      SELECT academic_year, semester_no
+      FROM term
+      ORDER BY academic_year DESC, semester_no DESC
+      LIMIT 1
+    `);
+    const cur = curRows[0] || lastRows[0] || { academic_year: null, semester_no: null };
+
+    // helpers
+    const toNumOrNull = (v) => {
+      if (v === undefined || v === null || v === '') return null;
+      const n = Number(v);
+      return Number.isFinite(n) ? n : null;
+    };
+    const hasYearQ = Object.prototype.hasOwnProperty.call(req.query, 'year');
+    const hasSemQ  = Object.prototype.hasOwnProperty.call(req.query, 'semester');
+
+    // 2) รับค่าฟิลเตอร์จาก query
+    let selectedYear = hasYearQ ? toNumOrNull(req.query.year) : toNumOrNull(cur.academic_year);
+    let selectedSem  = hasSemQ  ? toNumOrNull(req.query.semester)
+                                : (hasYearQ ? null : toNumOrNull(cur.semester_no));
+
+    // 3) “ตัวเลือกปี/ภาค” ต้องมาจากห้องที่ผู้ใช้เข้าถึงได้จริง
+    let yearOptions = [];
+    let semesterOptions = [];
     if (role === 'teacher') {
       const teacherId = req.session.user.teacherid;
-      const result = await pool.query(
-        `SELECT c.*, CONCAT(t.firstname, ' ', t.surname) AS teacher_fullname
-         FROM Classroom c
-         JOIN Teacher t ON c.teacherid = t.teacherid
-         WHERE c.teacherid = $1`,
-        [teacherId]
-      );
-      classrooms = result.rows;
+
+      // ปีทั้งหมดที่อาจารย์คนนี้มีห้อง
+      const { rows: yrows } = await pool.query(`
+        SELECT DISTINCT tm.academic_year
+        FROM classroom c
+        LEFT JOIN term tm ON tm.term_id = c.term_id
+        WHERE c.teacherid = $1
+          AND tm.academic_year IS NOT NULL
+        ORDER BY tm.academic_year DESC
+      `, [teacherId]);
+      yearOptions = yrows.map(r => r.academic_year);
+
+      // ถ้าปีที่เลือกไม่อยู่ในรายการของผู้ใช้ -> ล้างปี/ภาค
+      if (selectedYear != null && !yearOptions.includes(selectedYear)) {
+        selectedYear = null;
+        selectedSem = null;
+      }
+
+      // ภาคในปีที่เลือก
+      if (selectedYear != null) {
+        const { rows: srows } = await pool.query(`
+          SELECT DISTINCT tm.semester_no
+          FROM classroom c
+          LEFT JOIN term tm ON tm.term_id = c.term_id
+          WHERE c.teacherid = $1
+            AND tm.academic_year = $2
+          ORDER BY tm.semester_no
+        `, [teacherId, selectedYear]);
+        semesterOptions = srows.map(r => r.semester_no);
+
+        if (selectedSem != null && !semesterOptions.includes(selectedSem)) {
+          selectedSem = null;
+        }
+      } else {
+        // ยังไม่เลือกปี -> ยังไม่โชว์ภาค (ปล่อยว่าง)
+        semesterOptions = [];
+      }
+
+      // ถ้าไม่ได้ส่ง query ใด ๆ และเทอมปัจจุบันไม่มีห้อง ให้ default เป็นปี/ภาคล่าสุดของผู้ใช้
+      if (!hasYearQ && !hasSemQ && (selectedYear == null) && yearOptions.length) {
+        selectedYear = yearOptions[0]; // มากสุด (DESC)
+        const { rows: srows } = await pool.query(`
+          SELECT DISTINCT tm.semester_no
+          FROM classroom c
+          LEFT JOIN term tm ON tm.term_id = c.term_id
+          WHERE c.teacherid = $1
+            AND tm.academic_year = $2
+          ORDER BY tm.semester_no
+        `, [teacherId, selectedYear]);
+        semesterOptions = srows.map(r => r.semester_no);
+        selectedSem = semesterOptions[semesterOptions.length - 1] ?? null; // เทอมมากสุดในปีนั้น
+      }
+
+    } else {
+      // student
+      const studentId = req.session.user.studentid;
+
+      const { rows: yrows } = await pool.query(`
+        SELECT DISTINCT tm.academic_year
+        FROM classroom c
+        JOIN classroom_student cs ON cs.classroomid = c.classroomid
+        LEFT JOIN term tm ON tm.term_id = c.term_id
+        WHERE cs.studentid = $1
+          AND tm.academic_year IS NOT NULL
+        ORDER BY tm.academic_year DESC
+      `, [studentId]);
+      yearOptions = yrows.map(r => r.academic_year);
+
+      if (selectedYear != null && !yearOptions.includes(selectedYear)) {
+        selectedYear = null;
+        selectedSem = null;
+      }
+
+      if (selectedYear != null) {
+        const { rows: srows } = await pool.query(`
+          SELECT DISTINCT tm.semester_no
+          FROM classroom c
+          JOIN classroom_student cs ON cs.classroomid = c.classroomid
+          LEFT JOIN term tm ON tm.term_id = c.term_id
+          WHERE cs.studentid = $1
+            AND tm.academic_year = $2
+          ORDER BY tm.semester_no
+        `, [studentId, selectedYear]);
+        semesterOptions = srows.map(r => r.semester_no);
+
+        if (selectedSem != null && !semesterOptions.includes(selectedSem)) {
+          selectedSem = null;
+        }
+      } else {
+        semesterOptions = [];
+      }
+
+      if (!hasYearQ && !hasSemQ && (selectedYear == null) && yearOptions.length) {
+        selectedYear = yearOptions[0];
+        const { rows: srows } = await pool.query(`
+          SELECT DISTINCT tm.semester_no
+          FROM classroom c
+          JOIN classroom_student cs ON cs.classroomid = c.classroomid
+          LEFT JOIN term tm ON tm.term_id = c.term_id
+          WHERE cs.studentid = $1
+            AND tm.academic_year = $2
+          ORDER BY tm.semester_no
+        `, [studentId, selectedYear]);
+        semesterOptions = srows.map(r => r.semester_no);
+        selectedSem = semesterOptions[semesterOptions.length - 1] ?? null;
+      }
+    }
+
+    // 4) ดึงรายการห้องตามบทบาท + ฟิลเตอร์
+    let classrooms = [];
+    if (role === 'teacher') {
+      const teacherId = req.session.user.teacherid;
+      const where = ['c.teacherid = $1'];
+      const params = [teacherId];
+
+      if (selectedYear != null) {
+        params.push(selectedYear);
+        where.push(`tm.academic_year = $${params.length}`);
+      }
+      if (selectedSem != null) {
+        params.push(selectedSem);
+        where.push(`tm.semester_no = $${params.length}`);
+      }
+
+      const sql = `
+        SELECT c.*,
+               CONCAT(t.firstname, ' ', t.surname) AS teacher_fullname,
+               tm.semester_no AS semester,
+               tm.academic_year,
+               tm.start_date, tm.end_date
+        FROM classroom c
+        JOIN teacher t ON c.teacherid = t.teacherid
+        LEFT JOIN term tm ON tm.term_id = c.term_id
+        WHERE ${where.join(' AND ')}
+        ORDER BY tm.academic_year DESC NULLS LAST,
+                 tm.semester_no  DESC NULLS LAST,
+                 c.classroomname ASC
+      `;
+      classrooms = (await pool.query(sql, params)).rows;
 
     } else if (role === 'student') {
       const studentId = req.session.user.studentid;
+      const where = ['cs.studentid = $1'];
+      const params = [studentId];
 
-      const result = await pool.query(
-        `SELECT DISTINCT c.*, CONCAT(t.firstname, ' ', t.surname) AS teacher_fullname
-         FROM Classroom c
-         JOIN Teacher t ON c.teacherid = t.teacherid
-         JOIN Classroom_Student cs ON c.classroomid = cs.classroomid
-         WHERE cs.studentid = $1`,
-        [studentId]
-      );
-      classrooms = result.rows;
+      if (selectedYear != null) {
+        params.push(selectedYear);
+        where.push(`tm.academic_year = $${params.length}`);
+      }
+      if (selectedSem != null) {
+        params.push(selectedSem);
+        where.push(`tm.semester_no = $${params.length}`);
+      }
 
+      const sql = `
+        SELECT DISTINCT
+               c.*,
+               CONCAT(t.firstname, ' ', t.surname) AS teacher_fullname,
+               tm.semester_no AS semester,
+               tm.academic_year,
+               tm.start_date, tm.end_date
+        FROM classroom c
+        JOIN teacher t ON c.teacherid = t.teacherid
+        JOIN classroom_student cs ON c.classroomid = cs.classroomid
+        LEFT JOIN term tm ON tm.term_id = c.term_id
+        WHERE ${where.join(' AND ')}
+        ORDER BY tm.academic_year DESC NULLS LAST,
+                 tm.semester_no  DESC NULLS LAST,
+                 c.classroomname ASC
+      `;
+      classrooms = (await pool.query(sql, params)).rows;
     } else {
       return res.redirect('/login');
     }
 
-    res.render('classroom', {
+    // 5) render
+    return res.render('classroom', {
       classrooms,
       role,
       showNavbar: true,
       currentUser: req.session.user,
-      currentRole: role
+      currentRole: role,
+      yearOptions,
+      semesterOptions,
+      selectedYear,
+      selectedSem
     });
 
   } catch (err) {
     console.error(err);
-    res.render('classroom', {
+    return res.render('classroom', {
       classrooms: [],
       role: req.session.role,
       showNavbar: true,
@@ -444,49 +719,92 @@ router.get('/classroom', requireAnyRole(['teacher', 'student']), async (req, res
   }
 });
 
+
+
 //------------------------------------------------------------------
 //--------------------------ADD CLASSROOM---------------------------
 //------------------------------------------------------------------
 // GET: แสดงฟอร์มสร้างห้องเรียน (เฉพาะอาจารย์)
-router.get('/classroom/add', requireRole('teacher'), (req, res) => {
-  const error = req.session.error || null;
-  req.session.error = null;
+// แทนทั้ง handler GET /classroom/add
+// เพิ่มห้องเรียน
+router.get('/classroom/add', requireRole('teacher'), async (req, res) => {
+  try {
+    // ปีการศึกษา: 2568..2578 (รวม 11 ปี)
+    const yearOptions = Array.from({ length: 11 }, (_, i) => 2568 + i);
 
-  res.render('addclassroom', {
-    error,
-    showNavbar: true,
-    currentUser: req.session.user,   // เปลี่ยนจาก user เป็น currentUser
-    currentRole: req.session.role    // เปลี่ยนจาก role เป็น currentRole
-  });
+    const err = req.session.error || null;
+    req.session.error = null;
+
+    return res.render('addclassroom', {
+      showNavbar: true,
+      currentUser: req.session.user,
+      currentRole: req.session.role,
+      error: err,
+      yearOptions,           // ✅ ส่งช่วงปี 2568–2578
+      semesters: [1, 2, 3],  // ✅ ภาค 1–3
+    });
+  } catch (e) {
+    console.error(e);
+    if (!res.headersSent) return res.redirect('/classroom');
+  }
 });
+
+
+
+
 
 
 // POST: บันทึก classroom ใหม่ (เฉพาะอาจารย์)
 router.post('/classroom/add', requireRole('teacher'), async (req, res) => {
-  const { ClassroomName, RoomNumber, Description, MinAttendancePercent } = req.body;
-
-  if (!ClassroomName || !RoomNumber || !Description || !MinAttendancePercent) {
-    req.session.error = 'กรุณากรอกข้อมูลให้ครบทุกช่อง';
-    return res.redirect('/classroom/add');
-  }
-
   try {
+    const teacherId = req.session.user.teacherid;
+
+    const {
+      ClassroomName, RoomNumber, Description,
+      MinAttendancePercent, day_of_week,
+      academic_year,          // ✅ ปี พ.ศ. จากฟอร์ม
+      semester_no             // ✅ ภาค 1-3 จากฟอร์ม
+    } = req.body;
+
+    const start_time = resolveTimeFromBody(req.body, 'start');
+    const end_time   = resolveTimeFromBody(req.body, 'end');
+
+    if (!ClassroomName || !RoomNumber || !Description || !MinAttendancePercent ||
+        !day_of_week || !start_time || !end_time || !academic_year || !semester_no) {
+      req.session.error = 'กรุณากรอกข้อมูลให้ครบถ้วน';
+      return res.redirect('/classroom/add');
+    }
+
+    // ✅ หา/สร้าง term_id จาก ปี (พ.ศ.) และ ภาค
+    const term_id = await getOrCreateTermId(Number(academic_year), Number(semester_no));
+
     await pool.query(
-      'INSERT INTO Classroom (ClassroomName, RoomNumber, Description, MinAttendancePercent, TeacherId) VALUES ($1, $2, $3, $4, $5)',
-      [ClassroomName, RoomNumber, Description, MinAttendancePercent, req.session.user.teacherid]
+      `INSERT INTO classroom
+       (classroomname, roomnumber, description, minattendancepercent, teacherid,
+        day_of_week, start_time, end_time, term_id)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
+      [
+        ClassroomName,
+        RoomNumber,
+        Description,
+        parseInt(MinAttendancePercent, 10),
+        teacherId,
+        day_of_week,
+        start_time,
+        end_time,
+        term_id
+      ]
     );
-    res.redirect('/classroom');
+
+    return res.redirect('/classroom');
   } catch (err) {
     console.error(err);
-    // ถ้าเกิด error ตอน insert แล้วอยากให้แสดง error พร้อม navbar:
-    res.render('addclassroom', {
-      error: 'เกิดข้อผิดพลาดในการสร้างห้องเรียน',
-      showNavbar: true,
-      currentUser: req.session.user,
-      currentRole: req.session.role
-    });
+    req.session.error = 'เกิดข้อผิดพลาดในการบันทึกห้องเรียน';
+    return res.redirect('/classroom/add');
   }
 });
+
+
 
 //------------------------------------------------------------------
 //--------------------------VIEW CLASSROOM---------------------------
@@ -495,15 +813,24 @@ router.get('/classroom/view/:id', requireAnyRole(['teacher', 'student']), async 
   const classroomId = req.params.id;
   try {
     const result = await pool.query(`
-      SELECT c.*, t.firstname || ' ' || t.surname AS teacher_fullname
-      FROM Classroom c
-      JOIN Teacher t ON c.teacherid = t.teacherid
+      SELECT c.*,
+             t.firstname || ' ' || t.surname AS teacher_fullname,
+             tm.semester_no AS semester,
+             tm.academic_year,
+             tm.start_date,
+             tm.end_date
+      FROM classroom c
+      JOIN teacher t ON c.teacherid = t.teacherid
+      LEFT JOIN term tm ON tm.term_id = c.term_id
       WHERE c.classroomid = $1
     `, [classroomId]);
 
-    if (result.rows.length === 0) return res.redirect('/classroom');
+    if (result.rows.length === 0) {
+      req.session.error = 'ไม่พบห้องเรียน';
+      return res.redirect('/classroom');
+    }
 
-    res.render('viewclassroom', {
+    return res.render('viewclassroom', {
       classroom: result.rows[0],
       showNavbar: true,
       currentUser: req.session.user,
@@ -511,61 +838,102 @@ router.get('/classroom/view/:id', requireAnyRole(['teacher', 'student']), async 
     });
   } catch (err) {
     console.error(err);
-    res.redirect('/classroom');
+    if (!res.headersSent) return res.redirect('/classroom');
   }
 });
+
 
 //------------------------------------------------------------------
 //--------------------------EDIT CLASSROOM---------------------------
 //------------------------------------------------------------------
 
+// GET: แก้ไขห้องเรียน
+// แก้ไขห้องเรียน
 router.get('/classroom/edit/:id', requireRole('teacher'), async (req, res) => {
   const classroomId = req.params.id;
-
   try {
-    const result = await pool.query('SELECT * FROM Classroom WHERE ClassroomId = $1', [classroomId]);
-    if (result.rows.length === 0) {
+    const { rows: clsRows } = await pool.query(`
+      SELECT c.*,
+             tm.academic_year,
+             tm.semester_no AS semester,   -- alias เป็น semester เพื่อใช้ใน EJS
+             tm.term_id
+      FROM classroom c
+      LEFT JOIN term tm ON tm.term_id = c.term_id
+      WHERE c.classroomid = $1
+    `, [classroomId]);
+
+    if (!clsRows.length) {
       req.session.error = 'ไม่พบห้องเรียน';
       return res.redirect('/classroom');
     }
 
-    res.render('editclassroom', {
-      classroom: result.rows[0],
+    // ปีการศึกษา: 2568..2578 (รวม 11 ปี)
+    const yearOptions = Array.from({ length: 11 }, (_, i) => 2568 + i);
+
+    const err = req.session.error || null;
+    req.session.error = null;
+
+    return res.render('editclassroom', {
+      classroom: clsRows[0],
+      yearOptions,           // ✅ ส่งช่วงปี 2568–2578
+      semesters: [1, 2, 3],  // ✅ ภาค 1–3
       showNavbar: true,
       currentUser: req.session.user,
       currentRole: req.session.role,
-      error: req.session.error || null   // ✅ เพิ่มบรรทัดนี้
+      error: err,
     });
-
-    req.session.error = null; // ✅ ล้างหลังแสดงแล้ว
   } catch (err) {
     console.error(err);
     req.session.error = 'เกิดข้อผิดพลาดในการโหลดข้อมูลห้องเรียน';
-    res.redirect('/classroom');
+    return res.redirect('/classroom');
   }
 });
+
+
+
 // POST: แก้ไขห้องเรียน
 router.post('/classroom/edit/:id', requireRole('teacher'), async (req, res) => {
-  const { ClassroomName, RoomNumber, Description, MinAttendancePercent } = req.body;
   const id = req.params.id;
-
-  if (!ClassroomName || !RoomNumber || !Description || !MinAttendancePercent) {
-    req.session.error = 'กรุณากรอกข้อมูลให้ครบทุกช่อง';
-    return res.redirect(`/classroom/edit/${id}`);
-  }
-
   try {
+    const {
+      ClassroomName, RoomNumber, Description,
+      MinAttendancePercent, day_of_week,
+      academic_year, semester_no
+    } = req.body;
+
+    const start_time = resolveTimeFromBody(req.body, 'start');
+    const end_time   = resolveTimeFromBody(req.body, 'end');
+
+    if (!ClassroomName || !RoomNumber || !Description || !MinAttendancePercent ||
+        !day_of_week || !start_time || !end_time || !academic_year || !semester_no) {
+      req.session.error = 'กรุณากรอกข้อมูลให้ครบถ้วน';
+      return res.redirect(`/classroom/edit/${id}`);
+    }
+
+    const term_id = await getOrCreateTermId(Number(academic_year), Number(semester_no));
+
     await pool.query(
-      'UPDATE Classroom SET ClassroomName=$1, RoomNumber=$2, Description=$3, MinAttendancePercent=$4 WHERE ClassroomId=$5',
-      [ClassroomName, RoomNumber, Description, MinAttendancePercent, id]
+      `UPDATE classroom
+       SET classroomname=$1, roomnumber=$2, description=$3,
+           minattendancepercent=$4, day_of_week=$5, start_time=$6, end_time=$7,
+           term_id=$8
+       WHERE classroomid=$9`,
+      [
+        ClassroomName, RoomNumber, Description,
+        parseInt(MinAttendancePercent, 10),
+        day_of_week, start_time, end_time,
+        term_id, id
+      ]
     );
-    res.redirect('/classroom');
+
+    return res.redirect('/classroom');
   } catch (err) {
     console.error(err);
-    req.session.error = 'เกิดข้อผิดพลาดในการแก้ไข';
-    res.redirect(`/classroom/edit/${id}`);
+    req.session.error = 'เกิดข้อผิดพลาดในการแก้ไขห้องเรียน';
+    return res.redirect(`/classroom/edit/${id}`);
   }
 });
+
 
 
 // Route ลบห้องเรียน
@@ -585,132 +953,182 @@ router.post('/classroom/delete/:id', requireRole('teacher'), async (req, res) =>
 //------------------------------------------------------------------
 //--------------------------FORM ADD student to classroom----------------------
 //------------------------------------------------------------------
+
+
 router.get('/classroom/add-students', requireRole('teacher'), async (req, res) => {
   try {
-    const teacherId = req.session.user.teacherid;
+    const teacherId   = req.session.user.teacherid;
     const classroomId = req.query.classroomId;
 
     if (!classroomId) {
       req.session.error = 'กรุณาระบุรหัสชั้นเรียน';
-      return res.redirect(`/classroom/add-students/${id}`);
+      return res.redirect('/classroom');
     }
 
-    // Query ชื่อห้องเรียน จากตาราง Classroom ตาม TeacherId และ ClassroomId
+    // ตรวจสิทธิ์ว่าห้องนี้เป็นของอาจารย์ที่ล็อกอิน
     const classroomRes = await pool.query(
-      'SELECT ClassroomName FROM Classroom WHERE ClassroomId = $1 AND TeacherId = $2',
+      'SELECT classroomid, classroomname FROM classroom WHERE classroomid = $1 AND teacherid = $2',
       [classroomId, teacherId]
     );
-
     if (classroomRes.rows.length === 0) {
       req.session.error = 'คุณไม่มีสิทธิ์เข้าถึงชั้นเรียนนี้';
-      return res.redirect(`/classroom`);
+      return res.redirect('/classroom');
     }
 
-    res.render('add_student_to_classroom', {
-  classroomId,
-  classroomName: classroomRes.rows[0].classroomname, // ✅ ใช้ lowercase
-  error: 'คุณไม่มีสิทธิ์เข้าถึงชั้นเรียนนี้',
-  showNavbar: true,
-  currentUser: req.session.user,
-  currentRole: req.session.role,
-  error: null
-});
-  } catch (err) {
-    console.error(err);
-    res.status(500).send('เกิดข้อผิดพลาดในการโหลดข้อมูล');
-  }
-});
-
-
-router.post('/classroom/add-students', requireRole('teacher'), async (req, res) => {
-  const { studentIds, ClassroomId } = req.body;
-
-  try {
-    const teacherId = req.session.user.teacherid;
-
-    const classroomRes = await pool.query(
-      'SELECT classroomid FROM classroom WHERE classroomid = $1 AND teacherid = $2',
-      [ClassroomId, teacherId]
-    );
-
-    if (classroomRes.rows.length === 0) {
-      // render หน้าเดิม
-      const classroomNameResult = await pool.query(
-        'SELECT classroomname FROM classroom WHERE classroomid = $1',
-        [ClassroomId]
-      );
-      const classroomName = classroomNameResult.rows.length > 0 ? classroomNameResult.rows[0].classroomname : '';
-
-      return res.render('add_student_to_classroom', {
-        classroomId: ClassroomId,
-        classroomName,
-        error: 'คุณไม่มีสิทธิ์แก้ไขชั้นเรียนนี้',
-        showNavbar: true,
-        currentUser: req.session.user,
-        currentRole: req.session.role,
-      });
-    }
-
-    const classroomId = classroomRes.rows[0].classroomid;
-
-    const ids = studentIds
-      .split(',')
-      .map(id => id.trim())
-      .filter(id => id.length > 0);
-
-    const existing = await pool.query(
-      'SELECT studentid FROM classroom_student WHERE classroomid = $1',
-      [classroomId]
-    );
-
-    const existingIds = existing.rows.map(row => row.studentid.toString());
-
-    const newIds = ids.filter(id => !existingIds.includes(id));
-
-    if (newIds.length === 0) {
-      const classroomNameResult = await pool.query(
-        'SELECT classroomname FROM classroom WHERE classroomid = $1',
-        [ClassroomId]
-      );
-      const classroomName = classroomNameResult.rows.length > 0 ? classroomNameResult.rows[0].classroomname : '';
-
-      return res.render('add_student_to_classroom', {
-        classroomId: ClassroomId,
-        classroomName,
-        error: 'รหัสนักศีกษามีอยู่ในชั้นเรียนแล้ว',
-        showNavbar: true,
-        currentUser: req.session.user,
-        currentRole: req.session.role,
-      });
-    }
-
-    for (let studentId of newIds) {
-      await pool.query(
-        'INSERT INTO classroom_student (classroomid, studentid) VALUES ($1, $2)',
-        [classroomId, studentId]
-      );
-    }
-
-    return res.redirect(`/classroom/${classroomId}/students`);
-  } catch (err) {
-    console.error('เกิด error:', err);
-
-    const classroomNameResult = await pool.query(
-      'SELECT classroomname FROM classroom WHERE classroomid = $1',
-      [ClassroomId]
-    );
-    const classroomName = classroomNameResult.rows.length > 0 ? classroomNameResult.rows[0].classroomname : '';
+    const classroom = classroomRes.rows[0];
 
     return res.render('add_student_to_classroom', {
-      classroomId: ClassroomId,
-      classroomName,
-      error: 'รหัสนักศีกษาไม่ถูกต้อง หรือไม่มีรหัสนักศีกษาที่มีในระบบ',
+      classroomId: classroom.classroomid,
+      classroomName: classroom.classroomname,
+      error: req.session.error || null,
+      success: null,
+      summary: null,
       showNavbar: true,
       currentUser: req.session.user,
-      currentRole: req.session.role,
+      currentRole: req.session.role
     });
+  } catch (err) {
+    console.error(err);
+    return res.status(500).send('เกิดข้อผิดพลาดในการโหลดข้อมูล');
+  } finally {
+    req.session.error = null;
   }
 });
+
+
+
+router.post('/classroom/add-students',
+  requireRole('teacher'),
+  upload.single('file'),
+  async (req, res) => {
+    const { ClassroomId } = req.body;
+
+    // helper render กลับหน้าเดิม
+    const renderBack = async (opts) => {
+      try {
+        const c = await pool.query('SELECT classroomid, classroomname FROM classroom WHERE classroomid = $1', [ClassroomId]);
+        return res.render('add_student_to_classroom', {
+          classroomId: ClassroomId,
+          classroomName: c.rows[0]?.classroomname || '',
+          showNavbar: true,
+          currentUser: req.session.user,
+          currentRole: req.session.role,
+          ...opts
+        });
+      } catch (e) {
+        console.error('renderBack error:', e);
+        return res.status(500).send('Server error');
+      }
+    };
+
+    try {
+      const teacherId = req.session.user.teacherid;
+
+      // ตรวจสิทธิ์ห้อง
+      const classroomRes = await pool.query(
+        'SELECT classroomid FROM classroom WHERE classroomid = $1 AND teacherid = $2',
+        [ClassroomId, teacherId]
+      );
+      if (classroomRes.rows.length === 0) {
+        return renderBack({ error: 'คุณไม่มีสิทธิ์แก้ไขชั้นเรียนนี้', success: null, summary: null });
+      }
+      const classroomId = classroomRes.rows[0].classroomid;
+
+      // --- รวบรวมรหัสจาก "ข้อความ" ---
+      const fromText = (() => {
+        const raw = (req.body.studentIds || '').toString();
+        if (!raw.trim()) return [];
+        // แยกด้วย comma, เว้นบรรทัด หรือช่องว่างยาว ๆ
+        return raw.split(/[\s,]+/).map(s => s.trim()).filter(Boolean);
+      })();
+
+      // --- รวบรวมรหัสจาก "ไฟล์" (Excel/CSV) ---
+      const fromFile = (() => {
+        if (!req.file) return [];
+        const name = (req.file.originalname || '').toLowerCase();
+        const buf  = req.file.buffer;
+
+        try {
+          if (name.endsWith('.csv')) {
+            const text  = buf.toString('utf8');
+            const lines = text.split(/\r?\n/).map(l => l.trim()).filter(Boolean);
+            const first = (lines[0] || '').toLowerCase();
+            const start = (first.includes('student') && first.includes('id')) ? 1 : 0;
+            return lines.slice(start).map(line => line.split(',')[0].trim()).filter(Boolean);
+          } else {
+            const wb = xlsx.read(buf, { type: 'buffer', cellText: false, cellDates: true });
+            const sheet = wb.Sheets[wb.SheetNames[0]];
+            const rows = xlsx.utils.sheet_to_json(sheet, { header: 1, defval: '' }); // array of arrays
+            let col0 = rows.map(r => (r && r.length ? String(r[0]).trim() : '')).filter(Boolean);
+            const head = (col0[0] || '').toLowerCase();
+            if (head.includes('student') && head.includes('id')) col0 = col0.slice(1);
+            return col0;
+          }
+        } catch (e) {
+          console.error('read file error:', e);
+          return [];
+        }
+      })();
+
+      // รวม + ทำความสะอาด + unique
+      const clean = s => String(s).trim().replace(/[\u200B-\u200D\uFEFF]/g, '');
+      let candidateIds = Array.from(new Set([...fromText, ...fromFile].map(clean).filter(Boolean)));
+
+      const summary = {
+        total: fromText.length + fromFile.length,
+        readable: candidateIds.length,
+        found: 0,
+        notfound: 0,
+        inserted: 0,
+        duplicates: 0
+      };
+
+      if (candidateIds.length === 0) {
+        return renderBack({ error: 'กรุณากรอกรหัสนักศึกษา หรืออัปโหลดไฟล์ที่มีรหัสในคอลัมน์แรก', success: null, summary });
+      }
+
+      // ตรวจว่ามีในตาราง student จริงกี่คน
+      const validRes = await pool.query(
+        'SELECT studentid FROM student WHERE studentid = ANY($1)',
+        [candidateIds]
+      );
+      const validIds = validRes.rows.map(r => r.studentid.toString());
+      summary.found = validIds.length;
+      summary.notfound = summary.readable - summary.found;
+
+      if (validIds.length === 0) {
+        return renderBack({ error: 'ไม่พบรหัสที่ตรงกับข้อมูลในระบบ (ตาราง Student)', success: null, summary });
+      }
+
+      // แทรกทีเดียว กันซ้ำด้วย NOT EXISTS (ถ้า DB มี UNIQUE(classroomid, studentid) ก็จะกันซ้ำซ้อน)
+      const insertRes = await pool.query(
+        `
+        INSERT INTO classroom_student (classroomid, studentid)
+        SELECT $1, s.studentid
+          FROM student s
+         WHERE s.studentid = ANY($2)
+           AND NOT EXISTS (
+             SELECT 1 FROM classroom_student cs
+              WHERE cs.classroomid = $1 AND cs.studentid = s.studentid
+           )
+        RETURNING studentid
+        `,
+        [classroomId, validIds]
+      );
+
+      summary.inserted  = insertRes.rowCount;
+      summary.duplicates = summary.found - summary.inserted;
+
+      // ส่งกลับหน้าเดิมให้เห็นสรุป
+      return renderBack({ success: 'อัปโหลด/บันทึกเสร็จแล้ว', error: null, summary });
+
+    } catch (err) {
+      console.error('add-students error:', err);
+      return renderBack({ error: 'เกิดข้อผิดพลาดระหว่างบันทึก กรุณาลองอีกครั้ง', success: null, summary: null });
+    }
+  }
+);
+
 
 //------------------------------------------------------------------
 //--------------------------list student in class----------------------
@@ -781,13 +1199,37 @@ router.post('/classroom/:classroomId/students/:studentId/remove', requireRole('t
 //------------------------------------------------------------------
 
 // คืนโทเคนที่ยังใช้ได้ภายใน 10 วิ ถ้าไม่มีให้สร้างใหม่
+// คืนโทเคนที่ยังใช้ได้ภายใน 10 วิ ถ้าไม่มีให้สร้างใหม่
 router.get('/qr/:id/token', requireRole('teacher'), async (req, res) => {
   const classroomId = parseInt(req.params.id, 10);
   const force = String(req.query.force || '').trim() === '1';
+  const parent = (req.query.parent || '').toString().trim();   // ← โทเคนหลักของคาบ
 
   try {
-    let row;
+    // 1) หา meta ของคาบจาก parent token (ถ้าไม่ได้ส่งมา จะ fallback เป็นแถวล่าสุดของห้องที่มี meta)
+    let meta = null;
+    if (parent) {
+      const m = await pool.query(`
+        SELECT term_id, grace_minutes, late_cutoff_at
+        FROM attendancetoken
+        WHERE token = $1
+      `, [parent]);
+      meta = m.rows[0] || null;
+    }
+    if (!meta) {
+      const m2 = await pool.query(`
+        SELECT term_id, grace_minutes, late_cutoff_at
+        FROM attendancetoken
+        WHERE classroomid = $1
+          AND grace_minutes IS NOT NULL
+          AND late_cutoff_at IS NOT NULL
+        ORDER BY created_at DESC
+        LIMIT 1
+      `, [classroomId]);
+      meta = m2.rows[0] || null; // ถ้าไม่มีจริง ๆ ก็จะเป็น null (ถือว่าไม่ตั้งตัดสาย)
+    }
 
+    // 2) ถ้าไม่ force ลองใช้โทเคนที่ยังไม่หมดอายุที่ "สร้างด้วย meta แล้ว"
     if (!force) {
       const q = await pool.query(`
         SELECT token, created_at
@@ -798,27 +1240,33 @@ router.get('/qr/:id/token', requireRole('teacher'), async (req, res) => {
         ORDER BY created_at DESC
         LIMIT 1
       `, [classroomId, TOKEN_TTL_SECONDS]);
-      if (q.rowCount > 0) row = q.rows[0];
+      if (q.rowCount > 0) {
+        const baseUrl = `${req.protocol}://${req.get('host')}`;
+        const url = `${baseUrl}/attendance/confirm/${q.rows[0].token}`;
+        return res.json({ token: q.rows[0].token, url, ttl: TOKEN_TTL_SECONDS });
+      }
     }
 
-    if (!row) {
-      const token = uuidv4();
-      const ins = await pool.query(`
-        INSERT INTO attendancetoken (token, classroomid, created_at, is_used)
-        VALUES ($1, $2, NOW(), FALSE)
-        RETURNING token
-      `, [token, classroomId]);
-      row = ins.rows[0];
-    }
+    // 3) สร้างโทเคนใหม่ พร้อมคัดลอก meta ลงไปด้วย
+    const token = uuidv4();
+    const ins = await pool.query(`
+      INSERT INTO attendancetoken
+        (token, classroomid, created_at, is_used,
+         term_id, grace_minutes, late_cutoff_at)
+      VALUES
+        ($1, $2, NOW(), FALSE,
+         $3, $4, $5)
+      RETURNING token
+    `, [
+      token, classroomId,
+      meta?.term_id ?? null,
+      meta?.grace_minutes ?? null,
+      meta?.late_cutoff_at ?? null
+    ]);
 
     const baseUrl = `${req.protocol}://${req.get('host')}`;
-    const url = `${baseUrl}/attendance/confirm/${row.token}`;
-
-    return res.json({
-      token: row.token,
-      url,
-      ttl: TOKEN_TTL_SECONDS   // 👈 ฝั่งหน้าใช้ตั้งหมดอายุ = Date.now()+ttl*1000
-    });
+    const url = `${baseUrl}/attendance/confirm/${ins.rows[0].token}`;
+    return res.json({ token: ins.rows[0].token, url, ttl: TOKEN_TTL_SECONDS });
   } catch (e) {
     console.error('qr token error:', e);
     return res.status(500).json({ error: 'cannot create token' });
@@ -877,7 +1325,20 @@ router.get('/qr/:id', requireRole('teacher'), async (req, res) => {
   })();
 
   try {
-    // 1) ดึงรายชื่อนักศีกษา + สถานะเช็กชื่อของวันนั้น
+    // 🔻 เพิ่มฟีเจอร์ตัดสาย: อ่าน token จาก query แล้วดึง grace_minutes/late_cutoff_at
+    const token = (req.query.token || '').toString().trim();
+    let metaLate = null;
+    if (token) {
+      const q = await pool.query(
+        `SELECT grace_minutes, late_cutoff_at
+         FROM public.attendancetoken
+         WHERE token = $1`,
+        [token]
+      );
+      metaLate = q.rows[0] || null;
+    }
+
+    // 1) ดึงรายชื่อนักศึกษากับสถานะเช็กชื่อของวันนั้น
     const studentQuery = await pool.query(
       `
       SELECT
@@ -912,20 +1373,31 @@ router.get('/qr/:id', requireRole('teacher'), async (req, res) => {
       req.session?.user?.surname || ''
     ].filter(Boolean).join(' ') || '-';
 
-    // นับจำนวนมาเรียน/ขาดเรียน
-    const presentCount = rows.reduce((n, r) => n + (r.status === 'Present' ? 1 : 0), 0);
+    // ✅ นับจำนวนแบบแยกและรวม
+    const onTimeCount  = rows.reduce((n, r) => n + (r.status === 'Present' ? 1 : 0), 0);
+    const lateCount    = rows.reduce((n, r) => n + (r.status === 'Late'    ? 1 : 0), 0);
+    const presentCount = onTimeCount + lateCount;     // มาเรียน = ตรงเวลา + มาสาย
     const absentCount  = rows.length - presentCount;
 
     return res.render('qr', {
       classroomId,
-      classroomName,     // 🟢 ส่งให้ qr.ejs
-      teacherName,       // 🟢 ส่งให้ qr.ejs
-      displayDate,       // 🟢 ส่งให้ qr.ejs (DD/MM/YYYY)
-      selectedDate,      // คงไว้ถ้าหน้าอื่นต้องใช้ (YYYY-MM-DD)
+      classroomName,     // ส่งให้ qr.ejs
+      teacherName,       // ส่งให้ qr.ejs
+      displayDate,       // DD/MM/YYYY
+      selectedDate,      // YYYY-MM-DD
 
       students: rows,
+
+      // ✅ ส่งค่าที่นับมาให้หน้า EJS ใช้
+      onTimeCount,
+      lateCount,
       presentCount,
       absentCount,
+
+      // ✅ ส่งเพิ่มสำหรับแสดง “ตัดสาย”
+      token,
+      metaLate,
+
       showNavbar: true,
       currentUser: req.session.user,
       currentRole: 'teacher',
@@ -936,6 +1408,8 @@ router.get('/qr/:id', requireRole('teacher'), async (req, res) => {
     return res.redirect('/classroom');
   }
 });
+
+
 
 
 // นักศีกษาสแกน token เพื่อเช็กชื่อ
@@ -1039,11 +1513,91 @@ router.get('/classroom/:id/select-date', async (req, res) => {
   }
 });
 
-router.post('/classroom/:id/generate-token', async (req, res) => {
-  const classroomId = req.params.id;
-  const selectedDate = req.body.date || new Date().toISOString().split('T')[0];
-  return res.redirect(`/qr/${classroomId}?date=${selectedDate}`);
+// ✅ ใช้ middleware ตัวเดิมของโปรเจกต์ และใช้ uuidv4() ที่ประกาศไว้แล้วด้านบน
+router.post('/classroom/:id/select-date', requireRole('teacher'), async (req, res) => {
+  const classroomId = Number(req.params.id);
+  const { date, grace_minutes } = req.body;   // date = 'YYYY-MM-DD', grace_minutes เช่น '20'
+  const gm = Math.max(0, parseInt(grace_minutes || '0', 10));
+
+  try {
+    const token = uuidv4(); // ✅ ใช้ uuidv4() (อย่าประกาศซ้ำ)
+
+    // คำนวณ late_cutoff_at ที่ฝั่ง Postgres: (date + start_time ของห้อง) + gm นาที
+    const sql = `
+      WITH cls AS (
+        SELECT term_id, start_time
+        FROM public.classroom
+        WHERE classroomid = $2
+      )
+      INSERT INTO public.attendancetoken
+        (token, classroomid, term_id, created_at, is_used, grace_minutes, late_cutoff_at)
+      SELECT
+        $1,                             -- token
+        $2,                             -- classroomid
+        cls.term_id,                    -- term ปัจจุบันของห้อง
+        NOW(),                          -- created_at
+        FALSE,                          -- is_used
+        $4::int,                        -- grace_minutes
+        ($3::date + cls.start_time) + make_interval(mins => $4::int)  -- late_cutoff_at
+      FROM cls
+      RETURNING token
+    `;
+    await pool.query(sql, [token, classroomId, date, gm]);
+
+    // ไปหน้า QR พร้อม token และ date (เพื่อให้ qr.ejs แสดงตัดสายได้)
+    return res.redirect(`/qr/${classroomId}?date=${encodeURIComponent(date)}&token=${encodeURIComponent(token)}`);
+  } catch (err) {
+    console.error('select-date error:', err);
+    req.session.error = 'สร้างโทเคนไม่สำเร็จ';
+    return res.redirect(`/classroom/view/${classroomId}`);
+  }
 });
+
+
+// ===== สร้างโทเคนของคาบ พร้อมกำหนดเวลาตัดสาย =====
+
+
+router.post('/classroom/:id/generate-token', requireRole('teacher'), async (req, res) => {
+  const classroomId = Number(req.params.id);
+  const { date, grace_minutes } = req.body;              // มาจากฟอร์ม select_date.ejs
+  const gm = Math.max(0, parseInt(grace_minutes || '0', 10));
+
+  try {
+    // สร้าง token หนึ่งอันสำหรับคาบนี้
+    const token = uuidv4();
+
+    // คำนวณ late_cutoff_at ที่ฝั่ง Postgres: (วันที่เลือก + start_time ของห้อง) + gm นาที
+    // พร้อมบันทึก term_id ของห้องไปกับ token ด้วย
+    const sql = `
+      WITH cls AS (
+        SELECT term_id, start_time
+        FROM public.classroom
+        WHERE classroomid = $2
+      )
+      INSERT INTO public.attendancetoken
+        (token, classroomid, term_id, created_at, is_used, grace_minutes, late_cutoff_at)
+      SELECT
+        $1,                             -- token
+        $2,                             -- classroomid
+        cls.term_id,                    -- term ปัจจุบันของห้อง
+        NOW(),                          -- created_at
+        FALSE,                          -- is_used
+        $4::int,                        -- grace_minutes
+        ($3::date + cls.start_time) + make_interval(mins => $4::int)  -- late_cutoff_at
+      FROM cls
+      RETURNING token
+    `;
+    await pool.query(sql, [token, classroomId, date, gm]);
+
+    // ไปหน้า QR พร้อมทั้งส่ง date/token ให้หน้าแสดงผล (ถ้าต้องการใช้โชว์)
+    return res.redirect(`/qr/${classroomId}?date=${date}&token=${token}`);
+  } catch (err) {
+    console.error('generate-token error:', err);
+    req.session.error = 'สร้างโทเคนไม่สำเร็จ';
+    return res.redirect(`/classroom/view/${classroomId}`);
+  }
+});
+
 
 
 // ========== หน้ายืนยันการเช็คชื่อ (นักศีกษากดจากลิงก์ใน QR) ==========
@@ -1139,11 +1693,11 @@ const timeTH = now.toLocaleTimeString('th-TH', { timeZone: 'Asia/Bangkok', hour:
 
 // ========== กดปุ่ม "ยืนยันการเช็คชื่อ" ==========
 // ป้องกันเช็คซ้ำในวันเดียวกัน + ไม่กิน token ถ้าเด็กคนนั้นเช็คไปแล้ว
+// ========== กดปุ่ม "ยืนยันการเช็คชื่อ" พร้อมตัดสิน Present/Late ==========
 router.post('/attendance/confirm', requireRole('student'), async (req, res) => {
-  const token = (req.body.token || '').toString().trim();
-  const student = req.session.user;
+  const tokenRaw = (req.body.token || '').toString().trim();
+  const student  = req.session.user;
 
-  // helper ส่ง alert แล้ว redirect
   const alertAndRedirect = (status, message, redirect = '/attendance/scan') => {
     return res
       .status(status)
@@ -1152,38 +1706,32 @@ router.post('/attendance/confirm', requireRole('student'), async (req, res) => {
 <body>
 <script>
   alert(${JSON.stringify(message)});
-  // ใช้ replace() เพื่อลดโอกาสกดย้อนแล้วเด้ง alert ซ้ำ
   window.location.replace(${JSON.stringify(redirect)});
 </script>
-<noscript>
-  <p>${message}</p>
-  <a href="${redirect}">กลับไปหน้าเช็คชื่อ</a>
-</noscript>
+<noscript><p>${message}</p><a href="${redirect}">กลับไปหน้าเช็คชื่อ</a></noscript>
 </body></html>`);
   };
 
   try {
-    const t = await pool.query(
-      `
-      SELECT classroomid
-      FROM attendancetoken
+    // 1) อ่านข้อมูล token + เวลา "ตัดสาย" + term_id (และเช็คอายุโทเคน)
+    const tq = await pool.query(`
+      SELECT classroomid, term_id, late_cutoff_at
+      FROM public.attendancetoken
       WHERE token=$1 AND is_used=FALSE
         AND created_at > NOW() - ($2 || ' seconds')::interval
-      `,
-      [token, TOKEN_TTL_SECONDS]
-    );
-    if (t.rowCount === 0) {
+    `, [tokenRaw, TOKEN_TTL_SECONDS]);
+
+    if (tq.rowCount === 0) {
       return alertAndRedirect(400, 'Token ไม่ถูกต้องหรือหมดอายุ');
     }
+    const { classroomid, term_id } = tq.rows[0];
 
-    const classroomId = t.rows[0].classroomid;
-
+    // 2) ต้องเป็นนักศึกษาที่อยู่ในห้องนี้
     const belong = await pool.query(
       `SELECT 1 FROM classroom_student WHERE classroomid=$1 AND studentid=$2`,
-      [classroomId, student.studentid]
+      [classroomid, student.studentid]
     );
     if (belong.rowCount === 0) {
-      // เคสนี้คงเดิม: แสดงหน้า not_enrolled
       return res.status(403).render('not_enrolled', {
         classroomName: '',
         studentName: `${student.firstname} ${student.surname}`,
@@ -1193,149 +1741,190 @@ router.post('/attendance/confirm', requireRole('student'), async (req, res) => {
       });
     }
 
+    // 3) เคยเช็คชื่อวันนี้ไปแล้วหรือไม่ (กันซ้ำ)
     const exist = await pool.query(
-      `
-      SELECT 1 FROM attendance
-      WHERE classroomid=$1 AND studentid=$2 AND date=CURRENT_DATE
-      `,
-      [classroomId, student.studentid]
+      `SELECT 1 FROM attendance
+       WHERE classroomid=$1 AND studentid=$2 AND date = (NOW() AT TIME ZONE 'Asia/Bangkok')::date`,
+      [classroomid, student.studentid]
     );
     if (exist.rowCount > 0) {
       return alertAndRedirect(409, 'คุณได้เช็คชื่อไปแล้วในวันนี้');
     }
 
+    // 4) ล็อก token (กันใช้ซ้ำ)
     const lock = await pool.query(
-      `
-      UPDATE attendancetoken
-         SET is_used=TRUE
-       WHERE token=$1 AND is_used=FALSE
-         AND created_at > NOW() - ($2 || ' seconds')::interval
-       RETURNING token
-      `,
-      [token, TOKEN_TTL_SECONDS]
+      `UPDATE attendancetoken SET is_used=TRUE
+        WHERE token=$1 AND is_used=FALSE
+          AND created_at > NOW() - ($2 || ' seconds')::interval
+        RETURNING token`,
+      [tokenRaw, TOKEN_TTL_SECONDS]
     );
     if (lock.rowCount === 0) {
       return alertAndRedirect(400, 'Token ถูกใช้ไปแล้วหรือหมดอายุ');
     }
 
+    // 5) ✅ ตัดสิน Present/Late ด้วย SQL (อิงเวลาไทย) เพื่อกันปัญหา timezone/parse
+    const { rows: [st] } = await pool.query(`
+  SELECT CASE
+           WHEN late_cutoff_at IS NULL
+                OR (NOW() AT TIME ZONE 'Asia/Bangkok') <= late_cutoff_at
+             THEN 'Present'::varchar(10)
+           ELSE 'Late'::varchar(10)
+         END AS status
+  FROM public.attendancetoken
+  WHERE token = $1
+`, [tokenRaw]);
+const status = st?.status || 'Present';
+
+
+    // 6) บันทึก (ใส่ term_id ด้วย)
     await pool.query(
-      `
-      INSERT INTO attendance (studentid, classroomid, date, "time", status)
-      VALUES ($1, $2,
-        (NOW() AT TIME ZONE 'Asia/Bangkok')::date,
-        (NOW() AT TIME ZONE 'Asia/Bangkok')::time,
-        'Present');
-      `,
-      [student.studentid, classroomId]
+      `INSERT INTO attendance (studentid, classroomid, term_id, date, "time", status)
+       VALUES ($1, $2, $3,
+         (NOW() AT TIME ZONE 'Asia/Bangkok')::date,
+         (NOW() AT TIME ZONE 'Asia/Bangkok')::time,
+         $4)
+       ON CONFLICT (studentid, classroomid, term_id, date)
+       DO UPDATE SET time=EXCLUDED.time, status=EXCLUDED.status`,
+      [student.studentid, classroomid, term_id, status]
     );
 
-    return alertAndRedirect(200, '✅ เช็คชื่อสำเร็จ');
+    return alertAndRedirect(200, status === 'Present'
+      ? '✅ เช็คชื่อสำเร็จ'
+      : '⏰ เช็คชื่อสำเร็จ (มาสาย)');
   } catch (err) {
     console.error('submit confirm error:', err);
     return alertAndRedirect(500, 'เกิดข้อผิดพลาดในการบันทึกการเช็คชื่อ');
   }
 });
+
+
 //------------------------------------------------------------------
 //--------------------------คะแนน/ประวัติ CLASSROOM---------------------------
 //------------------------------------------------------------------
 // รายงานประวัติการเช็คชื่อรายวัน (ผู้สอน)
 router.get('/classroom/:id/history', requireRole('teacher'), async (req, res) => {
-  const classroomId = req.params.id;
+  const classroomId = Number(req.params.id);
   const teacherId   = req.session.user.teacherid;
-  const selectedDate = (req.query.date || new Date().toISOString().slice(0,10)); // YYYY-MM-DD
 
-  // แปลง YYYY-MM-DD -> DD/MM/YYYY (ให้เหมือนในเอกสาร)
+  // ตรวจรูปแบบ YYYY-MM-DD
+  const isISODate = s => typeof s === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(s);
+
+  // วันที่วันนี้ (โซนไทย) -> YYYY-MM-DD
+  const todayISOInBangkok = () => {
+    const now = new Date();
+    const th  = new Date(now.toLocaleString('en-US', { timeZone: 'Asia/Bangkok' }));
+    const y = th.getFullYear();
+    const m = String(th.getMonth() + 1).padStart(2, '0');
+    const d = String(th.getDate()).padStart(2, '0');
+    return `${y}-${m}-${d}`;
+  };
+
+  const selectedDate = isISODate(req.query.date) ? req.query.date : todayISOInBangkok();
   const [y, m, d] = selectedDate.split('-');
   const displayDate = `${d}/${m}/${y}`;
 
   try {
+    // 1) ตรวจสิทธิ์ห้องเรียน
     const classRes = await pool.query(
       `SELECT classroomid, classroomname
-       FROM classroom
-       WHERE classroomid = $1 AND teacherid = $2`,
+         FROM classroom
+        WHERE classroomid = $1 AND teacherid = $2`,
       [classroomId, teacherId]
     );
-    if (classRes.rows.length === 0) return res.status(403).send('คุณไม่มีสิทธิ์เข้าถึงชั้นเรียนนี้');
+    if (classRes.rows.length === 0) {
+      return res.status(403).send('คุณไม่มีสิทธิ์เข้าถึงชั้นเรียนนี้');
+    }
 
-    // ✅ เลือก firstname, surname แยกคอลัมน์ และใช้ a.time เป็นเวลาเช็คชื่อ
-    const detailsRes = await pool.query(`
+    // 2) ดึงรายการนักเรียน + สถานะของวันนั้น
+    const { rows } = await pool.query(
+      `
       SELECT
         s.studentid,
         s.firstname,
         s.surname,
         COALESCE(a.status, 'Absent') AS status,
-        TO_CHAR(a.time, 'HH24:MI')   AS checkin_time
+        TO_CHAR(a."time", 'HH24:MI') AS checkin_time
       FROM classroom_student cs
       JOIN student s ON cs.studentid = s.studentid
       LEFT JOIN attendance a
-        ON a.studentid = s.studentid
+        ON a.studentid  = s.studentid
        AND a.classroomid = cs.classroomid
        AND a.date = $2
       WHERE cs.classroomid = $1
       ORDER BY s.studentid ASC
-    `, [classroomId, selectedDate]);
+      `,
+      [classroomId, selectedDate]
+    );
 
-    const totalStudents = detailsRes.rows.length;
-const presentCount  = detailsRes.rows.filter(r => r.status === 'Present').length;
-const absentCount   = totalStudents - presentCount;
+    // 3) นับจำนวนแบบแยกและรวม (มาเรียน = ตรงเวลา + มาสาย)
+    const onTimeCount  = rows.filter(r => r.status === 'Present').length;
+    const lateCount    = rows.filter(r => r.status === 'Late').length;
+    const presentCount = onTimeCount + lateCount;      // มาเรียน (รวมสาย)
+    const absentCount  = rows.length - presentCount;
+    const hasAnyAttendance = presentCount > 0;
 
-// 👉 ถ้าไม่มีใครมาเรียนเลย
-const hasAnyAttendance = presentCount > 0;
+    // 4) render
+    return res.render('teacher_history_by_date', {
+      classroom: classRes.rows[0],
+      selectedDate,
+      displayDate,
+      students: rows,
 
-res.render('teacher_history_by_date', {
-  classroom: classRes.rows[0],
-  selectedDate,
-  displayDate,
-  totalStudents,
-  presentCount,
-  absentCount,
-  students: detailsRes.rows,
-  hasAnyAttendance,       // << ส่งไปที่ EJS
-  showNavbar: true,
-  currentUser: req.session.user,
-  currentRole: req.session.role
-});
+      // ส่งตัวเลขสำหรับ badge 4 ตัว
+      onTimeCount,
+      lateCount,
+      presentCount,
+      absentCount,
+      hasAnyAttendance,
+
+      showNavbar: true,
+      currentUser: req.session.user,
+      currentRole: req.session.role
+    });
 
   } catch (err) {
     console.error('history error:', err);
-    res.status(500).send('เกิดข้อผิดพลาดในการโหลดรายงาน');
+    return res.status(500).send('เกิดข้อผิดพลาดในการโหลดรายงาน');
   }
 });
+;
 
 // คะแนนการเช็คชื่อ "ทั้งห้อง" (ฝั่งอาจารย์)
 
 router.get('/classroom/:id/attendance-scores', requireRole('teacher'), async (req, res) => {
-  const classroomId = req.params.id;
+  const classroomId = Number(req.params.id);
   const teacherId   = req.session.user.teacherid;
 
   try {
     // 1) ตรวจสิทธิ์ห้องเรียน
     const c = await pool.query(
       `SELECT classroomid, classroomname, minattendancepercent
-         FROM classroom
-        WHERE classroomid = $1 AND teacherid = $2`,
+       FROM classroom
+       WHERE classroomid = $1 AND teacherid = $2`,
       [classroomId, teacherId]
     );
     if (c.rows.length === 0) return res.status(403).send('คุณไม่มีสิทธิ์เข้าถึงชั้นเรียนนี้');
     const classroom  = c.rows[0];
     const minPercent = classroom.minattendancepercent || 0;
 
-    // 2) จำนวนคาบ/วันทั้งหมดที่มีการเช็คชื่อของห้องนี้
-    const totalRes = await pool.query(
+    // 2) จำนวนคาบทั้งหมดที่มีการเช็กชื่อของห้องนี้
+    const { rows: [tot] } = await pool.query(
       `SELECT COUNT(DISTINCT date)::int AS total_sessions
-         FROM attendance
-        WHERE classroomid = $1`,
+       FROM attendance
+       WHERE classroomid = $1`,
       [classroomId]
     );
-    const totalSessions = totalRes.rows[0].total_sessions;
+    const totalSessions = tot?.total_sessions || 0;
 
-    // 3) รวมสถิติของนักศีกษาทุกคน — นับเฉพาะ Present
+    // 3) รวมสถิติของนักศึกษา — แยกตรงเวลา/มาสาย
     const statsRes = await pool.query(`
       SELECT
         s.studentid,
         s.firstname,
         s.surname,
-        COUNT(a.*) FILTER (WHERE a.status = 'Present')::int AS present_count
+        COUNT(a.*) FILTER (WHERE a.status = 'Present')::int AS ontime_count,
+        COUNT(a.*) FILTER (WHERE a.status = 'Late')::int    AS late_count
       FROM classroom_student cs
       JOIN student s ON s.studentid = cs.studentid
       LEFT JOIN attendance a
@@ -1346,18 +1935,21 @@ router.get('/classroom/:id/attendance-scores', requireRole('teacher'), async (re
       ORDER BY s.studentid
     `, [classroomId]);
 
-    // 4) คำนวณ absent + เปอร์เซ็นต์ + ผ่าน/ไม่ผ่าน
+    // 4) คำนวณรวม/ขาด/เปอร์เซ็นต์
     const rows = statsRes.rows.map(r => {
-      const present = Number(r.present_count) || 0;
+      const ontime = Number(r.ontime_count) || 0;  // ✅ มาตรงเวลา
+      const late   = Number(r.late_count)   || 0;  // ✅ มาสาย
+      const present = ontime + late;               // ✅ มาเรียน (รวมสาย)
       const absent  = Math.max(0, totalSessions - present);
-      const percent = totalSessions > 0 ? Math.round((present / totalSessions) * 100) : 0; // นับเฉพาะ Present
+      const percent = totalSessions ? Math.round((present / totalSessions) * 100) : 0;
       const isPass  = percent >= minPercent;
-
       return {
         studentid: r.studentid,
         firstname: r.firstname,
         surname:   r.surname,
-        present,
+        ontime,              // ✅ ส่งไปหน้า EJS
+        late,                // ✅ ส่งไปหน้า EJS
+        present,             // รวม
         absent,
         percent,
         isPass
@@ -1368,7 +1960,7 @@ router.get('/classroom/:id/attendance-scores', requireRole('teacher'), async (re
       classroom,
       minPercent,
       totalSessions,
-      scores: rows,
+      scores: rows,           // มี ontime/late แล้ว
       hasAnySession: totalSessions > 0,
       showNavbar: true,
       currentUser: req.session.user,
@@ -1379,6 +1971,7 @@ router.get('/classroom/:id/attendance-scores', requireRole('teacher'), async (re
     res.status(500).send('เกิดข้อผิดพลาดในการโหลดคะแนนการเช็คชื่อ');
   }
 });
+
 
 
 // ประวัติการเช็คชื่อของ "นักศีกษาที่ล็อกอินอยู่" ในห้องนี้
@@ -1497,5 +2090,6 @@ router.get('/student/classroom/:id/attendance-score', requireRole('student'), as
     res.status(500).send('เกิดข้อผิดพลาดในการโหลดข้อมูลคะแนน');
   }
 });
+
 
 module.exports = router;
