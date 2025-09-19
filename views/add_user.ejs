@@ -6,112 +6,243 @@
   <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0-alpha1/dist/css/bootstrap.min.css" rel="stylesheet" />
   <link rel="stylesheet" href="/style.css" />
   <title>เพิ่ม <%= role === 'admin' ? 'ผู้ดูแลระบบ' : (role === 'teacher' ? 'อาจารย์' : 'นักศึกษา') %></title>
+
+  <style>
+    .required { color: red; font-weight: bold; margin-left: 2px; }
+    .form-row { display:flex; align-items:center; margin-bottom:12px; }
+    .form-row > label { width:120px; margin-right:12px; text-align:right; font-weight:600; }
+    .form-row > input, .form-row > select { flex:1; }
+    .note { display:block; margin:-6px 0 12px 132px; color:#a33; font-size:.9rem; }
+
+    /* เช็กบ็อกซ์แบบติ๊กถูก แต่ใหญ่ขึ้น (ใช้กับ Master Admin) */
+    .big-checkbox {
+      transform: scale(1.6);
+      transform-origin: left center;
+      width: 20px; height: 20px;
+      cursor: pointer;
+      accent-color: #0d6efd;
+    }
+  </style>
+
   <script>
     function validateForm() {
-      const form = document.forms["addForm"];
       const role = "<%= role %>";
-      const requiredFields = ["id", "firstname", "username", "password", "confirm_password"];
+      const modeEl = document.getElementById('mode');
+      const mode = modeEl ? modeEl.value : 'single';
 
-      if (role !== 'admin') {
-        requiredFields.push("surname");
-        requiredFields.push("email");
+      // โหมดไฟล์ ให้ยืนยันเฉย ๆ ที่หน้า ส่วนตรวจ format ไปเช็คฝั่งเซิร์ฟเวอร์
+      if ((role === 'admin' || role === 'teacher' || role === 'student') && mode === 'file') {
+        return confirm("ต้องการบันทึกข้อมูลจากไฟล์ CSV ใช่หรือไม่?");
       }
 
-      for (let field of requiredFields) {
-        if (!form[field].value.trim()) {
+      // ---- โหมดเพิ่มทีละคน ----
+      const form = document.forms["addForm"];
+      const requiredFields = ["id", "firstname", "username", "password", "confirm_password"];
+      if (role !== 'admin') requiredFields.push("surname", "email");
+
+      for (let f of requiredFields) {
+        if (!form[f] || !form[f].value.trim()) {
           alert("กรุณากรอกข้อมูลให้ครบทุกช่อง");
           return false;
         }
       }
-
       if (form["password"].value !== form["confirm_password"].value) {
         alert("รหัสผ่านและยืนยันรหัสผ่านไม่ตรงกัน");
         return false;
       }
-
       return confirm("คุณต้องการบันทึกข้อมูลนี้ใช่หรือไม่?");
     }
+
+    function setupModeToggle(){
+      const role = "<%= role %>";
+      if (role !== 'admin' && role !== 'teacher' && role !== 'student') return;
+
+      const sel = document.getElementById('mode');
+      const single = document.getElementById('mode-single');
+      const fileAdmin   = document.getElementById('mode-file-admin');
+      const fileTeacher = document.getElementById('mode-file-teacher');
+      const fileStudent = document.getElementById('mode-file-student');
+
+      function toggle(){
+        const v = sel.value;
+        single.style.display = (v === 'single') ? '' : 'none';
+        if (fileAdmin)   fileAdmin.style.display   = (v === 'file' && role === 'admin')   ? '' : 'none';
+        if (fileTeacher) fileTeacher.style.display = (v === 'file' && role === 'teacher') ? '' : 'none';
+        if (fileStudent) fileStudent.style.display = (v === 'file' && role === 'student') ? '' : 'none';
+      }
+      sel.addEventListener('change', toggle);
+      toggle();
+    }
+    document.addEventListener('DOMContentLoaded', setupModeToggle);
   </script>
-  <style>
-    .required {
-      color: red;
-      font-weight: bold;
-      margin-left: 2px;
-    }
-    .btn-group {
-      display: flex;
-      justify-content: center;
-      gap: 15px;
-      margin-top: 25px;
-    }
-    .btn-group button,
-    .btn-group a.btn {
-      min-width: 150px;
-    }
-  </style>
 </head>
 <body>
   <% if (showNavbar) { %>
     <%- include('partials/navbar') %>
   <% } %>
 
-  <div class="container" style="max-width: 600px; margin: 20px auto; padding: 0 15px;">
-    <h2>เพิ่ม <%= role === 'admin' ? 'ผู้ดูแลระบบ' : (role === 'teacher' ? 'อาจารย์' : 'นักศึกษา') %></h2>
-    <% if (error) { %>
-    <script>
-      alert("<%= error %>");
-    </script>
-  <% } %>
+  <div class="container" style="max-width: 700px; margin: 20px auto; padding: 0 15px;">
+    <h2 class="text-center mb-4">
+      เพิ่ม <%= role === 'admin' ? 'ผู้ดูแลระบบ' : (role === 'teacher' ? 'อาจารย์' : 'นักศึกษา') %>
+    </h2>
 
-    <form name="addForm" action="/admin/add/<%= role %>" method="POST" onsubmit="return validateForm()">
-      <div class="form-row">
-        <label>รหัสประจำตัว:</label>
-        <input type="text" name="id" required><span class="required">*</span>
-      </div>
-      <small class="note">
-        รูปแบบเป็นตัวเลขเท่านั้น เช่น 9999999
-        </small>
+    <% if (error) { %><script>alert("<%= error %>");</script><% } %>
 
-      <div class="form-row">
-        <label>ชื่อ:</label>
-        <input type="text" name="firstname" required><span class="required">*</span>
-      </div>
+    <form name="addForm" action="/admin/add/<%= role %>" method="POST"
+          enctype="multipart/form-data" onsubmit="return validateForm()">
 
-      <% if (role !== 'admin') { %>
+      <% if (role === 'admin' || role === 'teacher' || role === 'student') { %>
         <div class="form-row">
-          <label>นามสกุล:</label>
-          <input type="text" name="surname" required><span class="required">*</span>
+          <label>วิธีเพิ่ม:</label>
+          <select id="mode" name="mode" class="form-control w-auto d-inline-block">
+            <option value="single">เพิ่มทีละคน</option>
+            <option value="file">อัปโหลดไฟล์ CSV (หลายคน)</option>
+          </select>
         </div>
       <% } %>
 
-      <div class="form-row">
-        <label>ชื่อผู้ใช้:</label>
-        <input type="text" name="username" required><span class="required">*</span>
-      </div>
-
-      <div class="form-row">
-        <label>รหัสผ่าน:</label>
-        <input type="password" name="password" required><span class="required">*</span>
-      </div>
-
-      <div class="form-row">
-        <label>ยืนยันรหัสผ่าน:</label>
-        <input type="password" name="confirm_password" required><span class="required">*</span>
-      </div>
-
-      <% if (role !== 'admin') { %>
+      <!-- โหมด: เพิ่มทีละคน -->
+      <div id="mode-single">
         <div class="form-row">
-          <label>อีเมล:</label>
-          <input type="email" name="email" required><span class="required">*</span>
+          <label>รหัสประจำตัว:</label>
+          <input type="text" name="id" />
+          <span class="required">*</span>
+        </div>
+        <small class="note">รูปแบบเป็นตัวเลขเท่านั้น เช่น 9999999</small>
+
+        <div class="form-row">
+          <label>ชื่อ:</label>
+          <input type="text" name="firstname" />
+          <span class="required">*</span>
+        </div>
+
+        <% if (role !== 'admin') { %>
+          <div class="form-row">
+            <label>นามสกุล:</label>
+            <input type="text" name="surname" />
+            <span class="required">*</span>
+          </div>
+        <% } %>
+
+        <div class="form-row">
+          <label>ชื่อผู้ใช้:</label>
+          <input type="text" name="username" />
+          <span class="required">*</span>
+        </div>
+
+        <div class="form-row">
+          <label>รหัสผ่าน:</label>
+          <input type="password" name="password" />
+          <span class="required">*</span>
+        </div>
+
+        <div class="form-row">
+          <label>ยืนยันรหัสผ่าน:</label>
+          <input type="password" name="confirm_password" />
+          <span class="required">*</span>
+        </div>
+
+        <% if (role !== 'admin') { %>
+          <div class="form-row">
+            <label>อีเมล:</label>
+            <input type="email" name="email" />
+            <span class="required">*</span>
+          </div>
+        <% } else { %>
+          <!-- Master Admin: เช็กบ็อกซ์ใหญ่ -->
+          <div class="form-row">
+            <label>Master Admin:</label>
+            <div class="d-flex align-items-center" style="gap:10px;">
+              <input type="checkbox" class="big-checkbox" id="is_master" name="is_master" value="1">
+              <label for="is_master" class="mb-0">ให้สิทธิ์ระดับสูงสุด</label>
+            </div>
+          </div>
+        <% } %>
+      </div>
+
+      <!-- โหมด: อัปโหลดไฟล์ CSV (ADMIN) -->
+      <% if (role === 'admin') { %>
+        <div id="mode-file-admin" style="display:none">
+          <div class="mb-2 d-flex justify-content-between align-items-center">
+            <label class="form-label mb-0">ไฟล์ CSV:</label>
+            <a class="btn btn-outline-secondary btn-sm" href="/templates/csv/admin">ดาวน์โหลดเทมเพลต CSV</a>
+          </div>
+          <input type="file" name="file" accept=".csv" class="form-control mb-3">
+
+          <div class="mb-3">
+            <label class="form-label">ตัวอย่างไฟล์ .csv</label>
+            <textarea class="form-control" rows="5" readonly>adminid,name,username,password,is_master
+900001,สมชาย,admin01,Passw0rd,1
+900002,สมศรี,admin02,Passw0rd,0</textarea>
+          </div>
         </div>
       <% } %>
 
-      <center>
+      <!-- โหมด: อัปโหลดไฟล์ CSV (TEACHER) -->
+      <% if (role === 'teacher') { %>
+        <div id="mode-file-teacher" style="display:none">
+          <div class="mb-2 d-flex justify-content-between align-items-center">
+            <label class="form-label mb-0">ไฟล์ CSV:</label>
+            <a class="btn btn-outline-secondary btn-sm" href="/templates/csv/teacher">ดาวน์โหลดเทมเพลต CSV</a>
+          </div>
+          <input type="file" name="file" accept=".csv" class="form-control mb-3">
+
+          <div class="mb-3">
+            <label class="form-label">ตัวอย่างไฟล์ .csv</label>
+            <textarea class="form-control" rows="6" readonly>teacherid,firstname,surname,username,password,email
+65010001,สมชาย,ใจดี,teach01,Passw0rd,teach01@example.com
+65010002,สมศรี,ตั้งใจ,teach02,Passw0rd,teach02@example.com</textarea>
+          </div>
+        </div>
+      <% } %>
+
+      <!-- โหมด: อัปโหลดไฟล์ CSV (STUDENT) -->
+      <% if (role === 'student') { %>
+        <div id="mode-file-student" style="display:none">
+          <div class="mb-2 d-flex justify-content-between align-items-center">
+            <label class="form-label mb-0">ไฟล์ CSV:</label>
+            <a class="btn btn-outline-secondary btn-sm" href="/templates/csv/student">ดาวน์โหลดเทมเพลต CSV</a>
+          </div>
+          <input type="file" name="file" accept=".csv" class="form-control mb-3">
+
+          <div class="mb-3">
+            <label class="form-label">ตัวอย่างไฟล์ .csv</label>
+            <textarea class="form-control" rows="6" readonly>studentid,firstname,surname,username,password,email
+66010001,สมชาย,รักเรียน,stu01,Passw0rd,stu01@example.com
+66010002,สมศรี,ตั้งใจ,stu02,Passw0rd,stu02@example.com</textarea>
+          </div>
+        </div>
+      <% } %>
+
+      <div class="text-center mt-3">
         <button type="submit" class="btn btn-primary">บันทึก</button>
         <a href="/admin/list/<%= role %>" class="btn btn-secondary">ย้อนกลับ</a>
-      </center>
       </div>
     </form>
   </div>
+
+  <script>
+    // สลับบล็อก CSV ให้ตรงกับ role (เรียกหลัง DOM โหลด)
+    (function(){
+      const role = "<%= role %>";
+      const select = document.getElementById('mode');
+      if (!select) return;
+
+      const single = document.getElementById('mode-single');
+      const fileAdmin   = document.getElementById('mode-file-admin');
+      const fileTeacher = document.getElementById('mode-file-teacher');
+      const fileStudent = document.getElementById('mode-file-student');
+
+      function toggle(){
+        const v = select.value;
+        single.style.display = (v === 'single') ? '' : 'none';
+        if (fileAdmin)   fileAdmin.style.display   = (v === 'file' && role === 'admin')   ? '' : 'none';
+        if (fileTeacher) fileTeacher.style.display = (v === 'file' && role === 'teacher') ? '' : 'none';
+        if (fileStudent) fileStudent.style.display = (v === 'file' && role === 'student') ? '' : 'none';
+      }
+      select.addEventListener('change', toggle);
+      toggle();
+    })();
+  </script>
 </body>
 </html>

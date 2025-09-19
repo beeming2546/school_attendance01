@@ -104,6 +104,39 @@ async function getOrCreateTermId(academicYearBE, semesterNo) {
   );
   return ins.rows[0].term_id;
 }
+
+
+// ===== CSV Templates =====
+router.get('/templates/csv/:kind', requireAnyRole (['admin' , 'teacher']), (req, res) => {
+  const { kind } = req.params;
+
+  const map = {
+    admin: {
+      header: 'adminid,name,username,password,is_master\n',
+      filename: 'admin_template.csv'
+    },
+    teacher: {
+      header: 'teacherid,firstname,surname,username,password,email\n',
+      filename: 'teacher_template.csv'
+    },
+    student: {
+      header: 'studentid,firstname,surname,username,password,email\n',
+      filename: 'student_template.csv'
+    },
+    // สำหรับหน้าเพิ่มนักเรียนเข้าชั้นเรียน (คอลัมน์แรก)
+    'classroom-students': {
+      header: 'studentid\n',
+      filename: 'classroom_students_template.csv'
+    }
+  };
+
+  const item = map[kind];
+  if (!item) return res.status(404).send('Template not found');
+
+  res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+  res.setHeader('Content-Disposition', `attachment; filename="${item.filename}"`);
+  return res.send(item.header);
+});
 //------------------------------------------------------------------
 //--------------------------LOGIN----------------------------------
 //------------------------------------------------------------------
@@ -268,52 +301,234 @@ router.get('/admin/add/:role', requireRole('admin'), (req, res) => {
   });
 });
 
-router.post('/admin/add/:role', requireRole('admin'), async (req, res) => {
+// เพิ่มผู้ใช้ (รองรับ bulk สำหรับ admin)
+// เพิ่มผู้ใช้ (รองรับ bulk สำหรับ admin/teacher/student)
+router.post('/admin/add/:role', requireRole('admin'), upload.single('file'), async (req, res) => {
   const { role } = req.params;
-  const { id, firstname, surname, username, password, email } = req.body;
 
-  
+  // ---------- กิ่งพิเศษ: BULK สำหรับ ADMIN ----------
+  if (role === 'admin' && (req.body.mode === 'text' || req.body.mode === 'file')) {
+    if (!req.session.user.is_master) {
+      req.session.error = 'คุณไม่มีสิทธิ์เพิ่มผู้ดูแลระบบ (ต้องเป็น Master Admin)';
+      return res.redirect('/admin');
+    }
+    try {
+      let rows = [];
+      if (req.body.mode === 'text') {
+        const raw = (req.body.bulk_text || '').trim();
+        if (!raw) { req.session.error = 'กรุณากรอกข้อมูลในโหมดพิมพ์รายการ'; return res.redirect(`/admin/add/${role}`); }
+        raw.split(/\r?\n/).forEach(line => {
+          const parts = line.split(',').map(s => s.trim());
+          if (parts.length >= 4) {
+            const [adminid, name, username, password, is_master] = parts;
+            rows.push({ adminid, name, username, password, is_master });
+          }
+        });
+      } else if (req.body.mode === 'file') {
+        if (!req.file) { req.session.error = 'กรุณาเลือกไฟล์ CSV'; return res.redirect(`/admin/add/${role}`); }
+        const wb = xlsx.read(req.file.buffer, { type: 'buffer' });
+        const sh = wb.Sheets[wb.SheetNames[0]];
+        const data = xlsx.utils.sheet_to_json(sh, { header: 1, defval: '' });
+        const startRow = (String((data[0]||[])[0]).toLowerCase().includes('adminid')) ? 1 : 0;
+        for (let i = startRow; i < data.length; i++) {
+          const r = data[i];
+          if (!r || r.length < 4) continue;
+          rows.push({
+            adminid: String(r[0]).trim(),
+            name: String(r[1]).trim(),
+            username: String(r[2]).trim(),
+            password: String(r[3]).trim(),
+            is_master: String(r[4]||'0').trim()
+          });
+        }
+      }
+      if (rows.length === 0) { req.session.error = 'ไม่พบข้อมูลสำหรับเพิ่ม'; return res.redirect(`/admin/add/${role}`); }
 
-  // เช็คช่องว่างเบื้องต้น
+      const idRe = /^\d+$/;
+      const cleaned = rows
+        .filter(r => r.adminid && idRe.test(r.adminid) && r.name && r.username && r.password)
+        .map(r => ({ ...r, is_master: (String(r.is_master || '0').trim() === '1') }));
+      if (cleaned.length === 0) { req.session.error = 'ข้อมูลไม่ถูกต้อง (adminid,name,username,password[,is_master])'; return res.redirect(`/admin/add/${role}`); }
+
+      await pool.query('BEGIN');
+      let inserted = 0, duplicates = 0;
+      for (const r of cleaned) {
+        const dup = await pool.query('SELECT 1 FROM Admin WHERE AdminId = $1 OR Username = $2',[r.adminid, r.username]);
+        if (dup.rows.length > 0) { duplicates++; continue; }
+        await pool.query('INSERT INTO Admin (AdminId, Name, Username, Password, is_master) VALUES ($1,$2,$3,$4,$5)',
+          [r.adminid, r.name, r.username, r.password, r.is_master]);
+        inserted++;
+      }
+      await pool.query('COMMIT');
+      req.session.success = `เพิ่มสำเร็จ ${inserted} รายการ, ซ้ำ ${duplicates} รายการ`;
+      return res.redirect('/admin/list/admin');
+    } catch (err) {
+      console.error('Bulk add admin error:', err);
+      await pool.query('ROLLBACK');
+      req.session.error = 'เกิดข้อผิดพลาดในการเพิ่มแบบกลุ่ม';
+      return res.redirect(`/admin/add/${role}`);
+    }
+  }
+  // ---------- END BULK ADMIN ----------
+
+
+  // ---------- กิ่งพิเศษ: BULK สำหรับ TEACHER (CSV) ----------
+  if (role === 'teacher' && req.body.mode === 'file') {
+    try {
+      if (!req.file) { req.session.error = 'กรุณาเลือกไฟล์ CSV'; return res.redirect(`/admin/add/${role}`); }
+      const wb = xlsx.read(req.file.buffer, { type: 'buffer' });
+      const sh = wb.Sheets[wb.SheetNames[0]];
+      const data = xlsx.utils.sheet_to_json(sh, { header: 1, defval: '' });
+
+      let startRow = 0;
+      const h0 = (data[0]||[]).map(v => String(v).toLowerCase());
+      if (h0.includes('teacherid') || h0.includes('firstname') || h0.includes('surname')) startRow = 1;
+
+      const rows = [];
+      for (let i = startRow; i < data.length; i++) {
+        const r = data[i]; if (!r || r.length < 6) continue;
+        rows.push({
+          teacherid: String(r[0]).trim(),
+          firstname: String(r[1]).trim(),
+          surname:   String(r[2]).trim(),
+          username:  String(r[3]).trim(),
+          password:  String(r[4]).trim(),
+          email:     String(r[5]).trim()
+        });
+      }
+      if (rows.length === 0) { req.session.error = 'ไม่พบข้อมูลสำหรับเพิ่ม'; return res.redirect(`/admin/add/${role}`); }
+
+      const idRe = /^\d+$/;
+      const cleaned = rows.filter(r =>
+        r.teacherid && idRe.test(r.teacherid) && r.firstname && r.surname && r.username && r.password && r.email
+      );
+      if (cleaned.length === 0) { req.session.error = 'ข้อมูลไม่ถูกต้อง (teacherid,firstname,surname,username,password,email)'; return res.redirect(`/admin/add/${role}`); }
+
+      await pool.query('BEGIN');
+      let inserted = 0, duplicates = 0;
+      for (const r of cleaned) {
+        const dup = await pool.query('SELECT 1 FROM Teacher WHERE TeacherId=$1 OR Username=$2 OR Email=$3',
+          [r.teacherid, r.username, r.email]);
+        if (dup.rows.length > 0) { duplicates++; continue; }
+        await pool.query('INSERT INTO Teacher (TeacherId, firstname, surname, Username, Password, Email) VALUES ($1,$2,$3,$4,$5,$6)',
+          [r.teacherid, r.firstname, r.surname, r.username, r.password, r.email]);
+        inserted++;
+      }
+      await pool.query('COMMIT');
+      req.session.success = `เพิ่มอาจารย์สำเร็จ ${inserted} รายการ, ซ้ำ ${duplicates} รายการ`;
+      return res.redirect('/admin/list/teacher');
+    } catch (err) {
+      console.error('Bulk add teacher error:', err);
+      await pool.query('ROLLBACK');
+      req.session.error = 'เกิดข้อผิดพลาดในการเพิ่มอาจารย์แบบกลุ่ม';
+      return res.redirect(`/admin/add/${role}`);
+    }
+  }
+  // ---------- END BULK TEACHER ----------
+
+
+  // ---------- กิ่งพิเศษ: BULK สำหรับ STUDENT (CSV) ----------
+  if (role === 'student' && req.body.mode === 'file') {
+    try {
+      if (!req.file) { req.session.error = 'กรุณาเลือกไฟล์ CSV'; return res.redirect(`/admin/add/${role}`); }
+
+      const wb = xlsx.read(req.file.buffer, { type: 'buffer' });
+      const sh = wb.Sheets[wb.SheetNames[0]];
+      const data = xlsx.utils.sheet_to_json(sh, { header: 1, defval: '' });
+
+      // ข้าม header ถ้าเจอคำบ่งชี้
+      let startRow = 0;
+      const h0 = (data[0]||[]).map(v => String(v).toLowerCase());
+      if (h0.includes('studentid') || h0.includes('firstname') || h0.includes('surname')) startRow = 1;
+
+      const rows = [];
+      for (let i = startRow; i < data.length; i++) {
+        const r = data[i]; if (!r || r.length < 6) continue;
+        rows.push({
+          studentid: String(r[0]).trim(),
+          firstname: String(r[1]).trim(),
+          surname:   String(r[2]).trim(),
+          username:  String(r[3]).trim(),
+          password:  String(r[4]).trim(),
+          email:     String(r[5]).trim()
+        });
+      }
+      if (rows.length === 0) { req.session.error = 'ไม่พบข้อมูลสำหรับเพิ่ม'; return res.redirect(`/admin/add/${role}`); }
+
+      // ตรวจความถูกต้อง
+      const idRe = /^\d+$/;
+      const cleaned = rows.filter(r =>
+        r.studentid && idRe.test(r.studentid) && r.firstname && r.surname && r.username && r.password && r.email
+      );
+      if (cleaned.length === 0) { req.session.error = 'ข้อมูลไม่ถูกต้อง (studentid,firstname,surname,username,password,email)'; return res.redirect(`/admin/add/${role}`); }
+
+      // บันทึก
+      await pool.query('BEGIN');
+      let inserted = 0, duplicates = 0;
+      for (const r of cleaned) {
+        const dup = await pool.query('SELECT 1 FROM Student WHERE StudentId=$1 OR Username=$2 OR Email=$3',
+          [r.studentid, r.username, r.email]);
+        if (dup.rows.length > 0) { duplicates++; continue; }
+        await pool.query('INSERT INTO Student (StudentId, firstname, surname, Username, Password, Email) VALUES ($1,$2,$3,$4,$5,$6)',
+          [r.studentid, r.firstname, r.surname, r.username, r.password, r.email]);
+        inserted++;
+      }
+      await pool.query('COMMIT');
+      req.session.success = `เพิ่มนักศึกษาสำเร็จ ${inserted} รายการ, ซ้ำ ${duplicates} รายการ`;
+      return res.redirect('/admin/list/student');
+    } catch (err) {
+      console.error('Bulk add student error:', err);
+      await pool.query('ROLLBACK');
+      req.session.error = 'เกิดข้อผิดพลาดในการเพิ่มนักศึกษาแบบกลุ่ม';
+      return res.redirect(`/admin/add/${role}`);
+    }
+  }
+  // ---------- END BULK STUDENT ----------
+
+
+  // ---------- โหมดเดิม: เพิ่มทีละคน ----------
+  const { id, firstname, surname, username, password, email, is_master } = req.body;
+
+  if (role === 'admin' && !req.session.user.is_master) {
+    req.session.error = 'คุณไม่มีสิทธิ์เพิ่มผู้ดูแลระบบ (ต้องเป็น Master Admin)';
+    return res.redirect('/admin');
+  }
+
   if (!id || !firstname || !username || !password || (role !== 'admin' && (!surname || !email))) {
     req.session.error = 'กรุณากรอกข้อมูลให้ครบทุกช่อง';
     return res.redirect(`/admin/add/${role}`);
   }
 
   try {
-    let checkQuery = '';
-    let checkParams = [];
-
+    let checkQuery = '', checkParams = [];
     if (role === 'admin') {
-      checkQuery = 'SELECT 1 FROM Admin WHERE AdminId = $1 OR Username = $2';
+      checkQuery = 'SELECT 1 FROM Admin WHERE AdminId=$1 OR Username=$2';
       checkParams = [id, username];
     } else if (role === 'teacher') {
-      checkQuery = 'SELECT 1 FROM Teacher WHERE TeacherId = $1 OR Username = $2 OR Email = $3';
+      checkQuery = 'SELECT 1 FROM Teacher WHERE TeacherId=$1 OR Username=$2 OR Email=$3';
       checkParams = [id, username, email];
     } else if (role === 'student') {
-      checkQuery = 'SELECT 1 FROM Student WHERE StudentId = $1 OR Username = $2 OR Email = $3';
+      checkQuery = 'SELECT 1 FROM Student WHERE StudentId=$1 OR Username=$2 OR Email=$3';
       checkParams = [id, username, email];
     } else {
       return res.redirect('/admin');
     }
 
-    const checkResult = await pool.query(checkQuery, checkParams);
-    if (checkResult.rows.length > 0) {
-      req.session.error = 'ID, Username หรือ Email ซ้ำกับในระบบ';
+    const existed = await pool.query(checkQuery, checkParams);
+    if (existed.rows.length > 0) {
+      req.session.error = 'พบข้อมูลซ้ำ (รหัส/ชื่อผู้ใช้/อีเมล)';
       return res.redirect(`/admin/add/${role}`);
     }
 
-    let insertQuery;
-    let insertParams;
-
+    let insertQuery = '', insertParams = [];
     if (role === 'admin') {
-      insertQuery = 'INSERT INTO Admin (AdminId, Name, Username, Password) VALUES ($1, $2, $3, $4)';
-      insertParams = [id, firstname, username, password];
+      insertQuery = 'INSERT INTO Admin (AdminId, Name, Username, Password, is_master) VALUES ($1,$2,$3,$4,$5)';
+      insertParams = [id, firstname, username, password, (is_master === '1')];
     } else if (role === 'teacher') {
-      insertQuery = 'INSERT INTO Teacher (TeacherId, firstname, Surname, Username, Password, Email) VALUES ($1, $2, $3, $4, $5, $6)';
+      insertQuery = 'INSERT INTO Teacher (TeacherId, firstname, surname, Username, Password, Email) VALUES ($1,$2,$3,$4,$5,$6)';
       insertParams = [id, firstname, surname, username, password, email];
     } else if (role === 'student') {
-      insertQuery = 'INSERT INTO Student (StudentId, firstname, Surname, Username, Password, Email) VALUES ($1, $2, $3, $4, $5, $6)';
+      insertQuery = 'INSERT INTO Student (StudentId, firstname, surname, Username, Password, Email) VALUES ($1,$2,$3,$4,$5,$6)';
       insertParams = [id, firstname, surname, username, password, email];
     }
 
@@ -325,6 +540,7 @@ router.post('/admin/add/:role', requireRole('admin'), async (req, res) => {
     res.redirect(`/admin/add/${role}`);
   }
 });
+
 
 router.get('/admin/edit/:role/:id', requireRole('admin'), async (req, res, next) => {
   const { role, id } = req.params;
@@ -1892,32 +2108,34 @@ router.get('/classroom/:id/history', requireRole('teacher'), async (req, res) =>
 
 // คะแนนการเช็คชื่อ "ทั้งห้อง" (ฝั่งอาจารย์)
 
+// คะแนนการเช็กชื่อรวมทั้งห้อง + กติกา 3 สาย = ขาด 1, ขาดรวม ≥ 3 = ไม่ผ่าน
 router.get('/classroom/:id/attendance-scores', requireRole('teacher'), async (req, res) => {
   const classroomId = Number(req.params.id);
   const teacherId   = req.session.user.teacherid;
 
   try {
-    // 1) ตรวจสิทธิ์ห้องเรียน
+    // 1) ตรวจสิทธิ์ห้องเรียน + ดึงเกณฑ์เปอร์เซ็นต์ขั้นต่ำ
     const c = await pool.query(
       `SELECT classroomid, classroomname, minattendancepercent
-       FROM classroom
-       WHERE classroomid = $1 AND teacherid = $2`,
+         FROM classroom
+        WHERE classroomid = $1 AND teacherid = $2`,
       [classroomId, teacherId]
     );
     if (c.rows.length === 0) return res.status(403).send('คุณไม่มีสิทธิ์เข้าถึงชั้นเรียนนี้');
+
     const classroom  = c.rows[0];
     const minPercent = classroom.minattendancepercent || 0;
 
-    // 2) จำนวนคาบทั้งหมดที่มีการเช็กชื่อของห้องนี้
-    const { rows: [tot] } = await pool.query(
+    // 2) จำนวนคาบทั้งหมดที่ห้องนี้มีการเช็กชื่อ (อิงข้อมูลจริงใน attendance)
+    const totalRes = await pool.query(
       `SELECT COUNT(DISTINCT date)::int AS total_sessions
-       FROM attendance
-       WHERE classroomid = $1`,
+         FROM attendance
+        WHERE classroomid = $1`,
       [classroomId]
     );
-    const totalSessions = tot?.total_sessions || 0;
+    const totalSessions = totalRes.rows[0].total_sessions;
 
-    // 3) รวมสถิติของนักศึกษา — แยกตรงเวลา/มาสาย
+    // 3) ดึงสถิติต่อคน: ontime_count = Present, late_count = Late
     const statsRes = await pool.query(`
       SELECT
         s.studentid,
@@ -1935,24 +2153,48 @@ router.get('/classroom/:id/attendance-scores', requireRole('teacher'), async (re
       ORDER BY s.studentid
     `, [classroomId]);
 
-    // 4) คำนวณรวม/ขาด/เปอร์เซ็นต์
+    // 4) คิดเกณฑ์: 3 มาสาย = ขาด 1, ขาดรวม ≥ 3 ⇒ ไม่ผ่าน
     const rows = statsRes.rows.map(r => {
-      const ontime = Number(r.ontime_count) || 0;  // ✅ มาตรงเวลา
-      const late   = Number(r.late_count)   || 0;  // ✅ มาสาย
-      const present = ontime + late;               // ✅ มาเรียน (รวมสาย)
-      const absent  = Math.max(0, totalSessions - present);
-      const percent = totalSessions ? Math.round((present / totalSessions) * 100) : 0;
-      const isPass  = percent >= minPercent;
+      const ontime = Number(r.ontime_count) || 0;   // มาตรงเวลา (Present)
+      const late   = Number(r.late_count)   || 0;   // มาสาย (Late)
+
+      // มาเรียน "ดิบ" = ตรงเวลา + สาย
+      const presentRaw = ontime + late;
+      // ขาด "ดิบ" (ยังไม่คิดโทษจากสาย)
+      const absentRaw  = Math.max(0, totalSessions - presentRaw);
+
+      // ✅ โทษจากสาย: 3 สาย = ขาด 1
+      const latePenalty = Math.floor(late / 3);
+
+      // ✅ ขาด "หลังคิดโทษ"
+      const absentEffective  = absentRaw + latePenalty;
+      // ✅ มาเรียน "หลังคิดโทษ"
+      const presentEffective = Math.max(0, totalSessions - absentEffective);
+
+      // เปอร์เซ็นต์คิดจากค่าหลังคิดโทษ
+      const percent = totalSessions
+        ? Math.round((presentEffective / totalSessions) * 100)
+        : 0;
+
+      // ✅ ผ่านเมื่อ: เปอร์เซ็นต์ ≥ minPercent และ ขาดหลังคิดโทษ < 3
+      const isPass = percent >= minPercent && absentEffective < 3;
+
       return {
         studentid: r.studentid,
         firstname: r.firstname,
         surname:   r.surname,
-        ontime,              // ✅ ส่งไปหน้า EJS
-        late,                // ✅ ส่งไปหน้า EJS
-        present,             // รวม
-        absent,
+
+        // ค่าไว้แสดงผล
+        ontime,                   // จำนวนมาตรงเวลา
+        late,                     // จำนวนมาสาย
+        present: presentRaw,      // จำนวนเข้าเรียน (รวม = ontime + late)
+        absent:  absentEffective, // จำนวนขาดเรียน (หลังคิดโทษ)
         percent,
-        isPass
+        isPass,
+
+        // (ออปชัน) tooltip อธิบายที่มาของ "ขาด"
+        _absent_raw: absentRaw,       // ขาดจริงก่อนคิดโทษ
+        _late_penalty: latePenalty,   // โทษจากสายที่แปลงเป็นขาด
       };
     });
 
@@ -1960,7 +2202,7 @@ router.get('/classroom/:id/attendance-scores', requireRole('teacher'), async (re
       classroom,
       minPercent,
       totalSessions,
-      scores: rows,           // มี ontime/late แล้ว
+      scores: rows,
       hasAnySession: totalSessions > 0,
       showNavbar: true,
       currentUser: req.session.user,
@@ -1971,6 +2213,8 @@ router.get('/classroom/:id/attendance-scores', requireRole('teacher'), async (re
     res.status(500).send('เกิดข้อผิดพลาดในการโหลดคะแนนการเช็คชื่อ');
   }
 });
+
+
 
 
 
@@ -2022,74 +2266,89 @@ router.get('/student/classroom/:id/attendance-history', requireRole('student'), 
 });
 
 // คะแนนการเช็คชื่อของ "นักศีกษาที่ล็อกอินอยู่" ในห้องนี้
+// ✅ สรุปคะแนนของนักเรียน 1 คน ในห้องเรียน
 router.get('/student/classroom/:id/attendance-score', requireRole('student'), async (req, res) => {
-  const classroomId = req.params.id;
+  const classroomId = Number(req.params.id);
   const studentId   = req.session.user.studentid;
 
   try {
-    // 1) นักศีกษาต้องอยู่ในห้องนี้ก่อน
+    // 1) ตรวจว่าลงทะเบียนในห้องนี้จริง
     const belong = await pool.query(
-      `SELECT 1 FROM classroom_student WHERE classroomid = $1 AND studentid = $2`,
+      `SELECT 1 FROM classroom_student WHERE classroomid=$1 AND studentid=$2`,
       [classroomId, studentId]
     );
-    if (belong.rowCount === 0) {
-      return res.status(403).send('คุณไม่ได้อยู่ในชั้นเรียนนี้');
-    }
+    if (belong.rowCount === 0) return res.status(403).send('คุณไม่ได้สังกัดชั้นเรียนนี้');
 
-    // 2) ข้อมูลห้องเรียน + เกณฑ์เปอร์เซ็นต์ขั้นต่ำ
-    const cls = await pool.query(
+    // 2) ดึงชื่อห้อง + เกณฑ์ขั้นต่ำ
+    const { rows: [room] } = await pool.query(
       `SELECT classroomid, classroomname, minattendancepercent
-         FROM classroom
-        WHERE classroomid = $1`,
+       FROM classroom WHERE classroomid=$1`,
       [classroomId]
     );
-    if (cls.rowCount === 0) return res.redirect('/classroom');
+    const minPercent = room?.minattendancepercent || 0;
 
-    const classroom  = cls.rows[0];
-    const minPercent = classroom.minattendancepercent || 0;
-
-    // 3) จำนวนคาบ/วันทั้งหมดที่มีการเช็คชื่อของห้องนี้
-    const totalRes = await pool.query(
+    // 3) จำนวนคาบทั้งหมดของห้องนี้ (นับเฉพาะคาบที่มีการเช็กชื่อเกิดขึ้นจริง)
+    const { rows: [tot] } = await pool.query(
       `SELECT COUNT(DISTINCT date)::int AS total_sessions
-         FROM attendance
-        WHERE classroomid = $1`,
+       FROM attendance WHERE classroomid=$1`,
       [classroomId]
     );
-    const totalSessions = totalRes.rows[0].total_sessions;
+    const totalSessions = tot?.total_sessions || 0;
 
-    // 4) นับเฉพาะ "Present" ของนักศีกษาคนนี้
-    const presentRes = await pool.query(
-      `SELECT COUNT(*)::int AS c
-         FROM attendance
-        WHERE classroomid = $1 AND studentid = $2 AND status = 'Present'`,
+    // 4) นับของ "นักเรียนคนนี้" แยกตรงเวลา/สาย
+    const { rows: [st] } = await pool.query(
+      `SELECT
+         COUNT(*) FILTER (WHERE status='Present')::int AS ontime_count,
+         COUNT(*) FILTER (WHERE status='Late')::int    AS late_count
+       FROM attendance
+       WHERE classroomid=$1 AND studentid=$2`,
       [classroomId, studentId]
     );
-    const present = presentRes.rows[0].c;
+    const ontime = st?.ontime_count || 0;
+    const late   = st?.late_count   || 0;
 
-    // 5) คำนวณ absent และเปอร์เซ็นต์เข้าเรียน (นับเฉพาะ Present)
-    const absent  = Math.max(0, totalSessions - present);
-    const percent = totalSessions > 0 ? Math.round((present / totalSessions) * 100) : 0;
-    const isPass  = percent >= minPercent;
+    // 5) คิดกติกา: 3 สาย = ขาด 1, ขาดรวม ≥ 3 ⇒ ไม่ผ่าน
+    const presentRaw = ontime + late;                         // มาเรียน(ดิบ)
+    const absentRaw  = Math.max(0, totalSessions - presentRaw);
+    const latePenalty      = Math.floor(late / 3);            // ✅ 3 สาย = ขาด 1
+    const absentEffective  = absentRaw + latePenalty;         // ขาดหลังคิดโทษ
+    const presentEffective = Math.max(0, totalSessions - absentEffective);
 
-    // 6) ส่งไปที่ view
-    res.render('student_attendance_score', {
-      classroom,        // { classroomid, classroomname, minattendancepercent }
-      totalSessions,    // จำนวนคาบทั้งหมด
-      present,          // จำนวนที่มาเรียน (Present)
-      absent,           // จำนวนขาด = total - present
-      percent,          // %
-      minPercent,       // เกณฑ์ขั้นต่ำ
-      isPass,           // ผ่าน/ไม่ผ่าน
-      hasAnySession: totalSessions > 0,
-      showNavbar: true,
-      currentUser: req.session.user,
-      currentRole: req.session.role
-    });
+    const percent = totalSessions
+      ? Math.round((presentEffective / totalSessions) * 100)
+      : 0;
+
+    const isPass = percent >= minPercent && absentEffective < 3;
+
+    return res.render('student_attendance_score', {
+  classroom: room,
+  totalSessions,
+  ontime,
+  late,
+  present: presentRaw,
+  absent:  absentEffective,
+  percent,
+  minPercent,
+  isPass,
+
+  // (ออปชัน) อธิบายที่มาของ "ขาด"
+  _absent_raw: absentRaw,
+  _late_penalty: latePenalty,
+
+  // ✅ เพิ่มบรรทัดนี้
+  hasAnySession: totalSessions > 0,
+
+  showNavbar: true,
+  currentUser: req.session.user,
+  currentRole: req.session.role
+});
+
   } catch (err) {
-    console.error('student self-score error:', err);
-    res.status(500).send('เกิดข้อผิดพลาดในการโหลดข้อมูลคะแนน');
+    console.error('student score error:', err);
+    res.status(500).send('เกิดข้อผิดพลาดในการโหลดคะแนนของคุณ');
   }
 });
+
 
 
 module.exports = router;

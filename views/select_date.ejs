@@ -16,12 +16,11 @@
       column-gap: 12px;
       row-gap: 12px;
       align-items: center;
-      margin-bottom: 2; /* เดิมของบีม */
     }
     .form-row label{
       font-weight: 500;
       margin: 0;
-      justify-self: end;
+      justify-self: end;     /* label ชิดขวา */
       white-space: nowrap;
     }
 
@@ -38,8 +37,25 @@
       min-width: 0;
     }
 
-    @media (max-width: 768px){ .form-row{ grid-template-columns: 120px 1fr; } }
-    @media (max-width: 480px){ .form-row{ grid-template-columns: 100px 1fr; } }
+    /* บรรทัดอธิบายใต้ช่องให้จัดเข้ากริดเดียวกัน */
+    .help-col{
+      display: grid;
+      grid-template-columns: 140px 1fr;
+      column-gap: 12px;
+      align-items: start;
+    }
+    .help-col .spacer{ /* ช่องว่างแทน label */
+      height: 0;
+    }
+
+    @media (max-width: 768px){
+      .form-row{ grid-template-columns: 120px 1fr; }
+      .help-col{ grid-template-columns: 120px 1fr; }
+    }
+    @media (max-width: 480px){
+      .form-row{ grid-template-columns: 100px 1fr; }
+      .help-col{ grid-template-columns: 100px 1fr; }
+    }
   </style>
 </head>
 <body>
@@ -64,28 +80,46 @@
       <div class="form-row">
         <label for="date">วันที่:</label>
         <div class="field">
-          <input type="date" class="form-control" name="date" id="date" required
-                 value="<%= new Date().toISOString().split('T')[0] %>" readonly>
+          <input
+            type="date"
+            class="form-control"
+            name="date"
+            id="date"
+            required
+            value="<%= new Date().toISOString().split('T')[0] %>"
+            readonly
+          >
           <span class="required">*</span>
         </div>
       </div>
 
-      <!-- ✅ บล็อกใหม่: ถือว่าสายเมื่อเกิน (นาที) -->
+      <!-- ✅ ถือว่าสายเมื่อเกิน (นาที) -->
       <div class="form-row">
-        <label for="grace_minutes">ถือว่าสายเมื่อเกิน (นาที):</label>
+        <label for="grace_minutes">ถือว่าสายเมื่อเกิน:</label>
         <div class="field">
-          <input type="number" class="form-control" name="grace_minutes" id="grace_minutes"
-                 value="20" min="0" step="5" required>
+          <div class="input-group w-auto">
+            <input
+              type="number"
+              class="form-control"
+              name="grace_minutes"
+              id="grace_minutes"
+              value="<%= typeof graceMinutes !== 'undefined' ? graceMinutes : 20 %>"
+              min="0"
+              step="5"
+              required
+            >
+            <span class="input-group-text">นาที</span>
+          </div>
           <span class="required">*</span>
         </div>
-        <!-- คำอธิบายย่อย (ถ้าต้องการ) -->
-        <div style="grid-column: 2 / span 1;">
-          <small class="text-muted">
-            เช่น 20 หมายถึงหลังเวลาเริ่มเรียน + 20 นาที จะถูกนับเป็น “สาย”
-          </small>
-        </div>
       </div>
-      <!-- จบบล็อกใหม่ -->
+      <!-- บรรทัดคำอธิบายใต้ช่อง -->
+      <div class="help-col mb-1">
+        <div class="spacer"></div>
+        <small class="text-muted">
+          เช่น ใส่ <strong>20</strong> หมายถึง “หลังเวลาเริ่มเรียน + 20 นาที” จะถูกนับเป็น <strong>มาสาย</strong>
+        </small>
+      </div>
 
       <div class="text-center mt-3">
         <button type="submit" class="btn btn-primary">ยืนยันและสร้าง QR Code</button>

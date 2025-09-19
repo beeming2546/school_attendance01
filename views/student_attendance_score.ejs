@@ -11,20 +11,24 @@
   </style>
 </head>
 <body>
-   <% if (showNavbar) { %>
+  <% if (showNavbar) { %>
     <%- include('partials/navbar', { currentUser, currentRole }) %>
   <% } %>
 
-  
-  <!-- เพิ่มระยะบน/ล่างให้พ้น navbar -->
   <div class="container mt-5 pt-4 mb-5">
-
-    <!-- กล่องเนื้อหาอยู่กลางจอ, ไม่ fix ความสูง -->
     <div class="mx-auto bg-white shadow-sm rounded-3 p-4" style="max-width: 680px;">
 
-      <h2 class="text-center mb-4">รายงาน ข้อมูลคะแนนการเช็คชื่อเข้าชั้นเรียน</h2>
-      <div class="text-center text-muted mb-3">
+      <h2 class="text-center mb-3">รายงาน ข้อมูลคะแนนการเช็คชื่อเข้าชั้นเรียน</h2>
+      <div class="text-center text-muted mb-2">
         ชื่อชั้นเรียน <span class="fw-semibold text-dark"><%= classroom.classroomname %></span>
+      </div>
+
+      <!-- ✅ อธิบายกติกาให้ชัด -->
+      <div class="text-center mb-3">
+        <small class="text-muted">
+          เกณฑ์: <strong>3 มาสาย = ขาด 1</strong> และ <strong>ขาดรวม ≥ 3 = ไม่ผ่าน</strong>
+          (เปอร์เซ็นต์คิดจากค่าหลังคิดโทษ)
+        </small>
       </div>
 
       <% if (!hasAnySession) { %>
@@ -32,16 +36,40 @@
       <% } else { %>
         <ul class="list-group list-group-flush stat-list">
           <li class="list-group-item d-flex justify-content-between">
-            <span class="label">จำนวนเข้าเรียน</span><span class="fw-semibold"><%= present %></span>
+            <span class="label">จำนวนคาบทั้งหมด</span>
+            <span class="fw-semibold"><%= totalSessions %></span>
           </li>
           <li class="list-group-item d-flex justify-content-between">
-            <span class="label">จำนวนขาดเรียน</span><span class="fw-semibold"><%= absent %></span>
+            <span class="label">จำนวนมาตรงเวลา</span>
+            <span class="fw-semibold"><%= ontime %></span>
           </li>
           <li class="list-group-item d-flex justify-content-between">
-            <span class="label">เปอร์เซ็นต์การเข้าเรียน</span><span class="fw-semibold"><%= percent %>%</span>
+            <span class="label">จำนวนมาสาย</span>
+            <span class="fw-semibold"><%= late %></span>
           </li>
           <li class="list-group-item d-flex justify-content-between">
-            <span class="label">เปอร์เซ็นต์การเข้าเรียนขั้นต่ำ</span><span class="fw-semibold"><%= minPercent %>%</span>
+            <span class="label">จำนวนเข้าเรียน (รวม)</span>
+            <span class="fw-semibold"><%= present %></span>
+          </li>
+          <li class="list-group-item d-flex justify-content-between align-items-center">
+            <span class="label">จำนวนขาดเรียน</span>
+            <span class="fw-semibold">
+              <%= absent %>
+              <% if (_late_penalty && _late_penalty > 0) { %>
+                <span class="text-muted ms-1"
+                  title="ขาดจริง: <%= _absent_raw %> | โทษจากสาย (3 สาย = ขาด 1): <%= _late_penalty %>">
+                  (รวมโทษสาย)
+                </span>
+              <% } %>
+            </span>
+          </li>
+          <li class="list-group-item d-flex justify-content-between">
+            <span class="label">เปอร์เซ็นต์การเข้าเรียน</span>
+            <span class="fw-semibold"><%= percent %>%</span>
+          </li>
+          <li class="list-group-item d-flex justify-content-between">
+            <span class="label">เปอร์เซ็นต์การเข้าเรียนขั้นต่ำ</span>
+            <span class="fw-semibold"><%= minPercent %>%</span>
           </li>
           <li class="list-group-item d-flex justify-content-between align-items-center">
             <span class="label">สถานะการเข้าเรียน</span>
@@ -53,7 +81,7 @@
       <% } %>
 
       <div class="text-center mt-4">
-        <a class="btn btn-secondary " href="/classroom/view/<%= classroom.classroomid %>">ย้อนกลับ</a>
+        <a class="btn btn-secondary" href="/classroom/view/<%= classroom.classroomid %>">ย้อนกลับ</a>
       </div>
     </div>
   </div>

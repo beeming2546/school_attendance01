@@ -8,23 +8,12 @@
   <link rel="stylesheet" href="/style.css" />
   <style>
     .required { color: #dc3545; font-weight: 700; margin-left: 6px; }
-
-    /* กริด 3 คอลัมน์: label | field | *  */
-    .line-38{
-      display: grid;
-      grid-template-columns: 140px 1fr 12px;
-      align-items: center;
-      gap: 10px;
-      margin-bottom: 14px;
-    }
+    .line-38{ display: grid; grid-template-columns: 140px 1fr 12px; align-items: center; gap: 10px; margin-bottom: 14px; }
     .label-38{ font-weight: 600; color: #606060; }
     .field-38 .form-control, .field-38 .form-select { background: #f5f6f7; }
-
     .panel-38{ max-width: 680px; margin: 0 auto; }
     .btn-group{ display: flex; justify-content: center; gap: 12px; margin-top: 22px; }
     .btn-group .btn{ min-width: 150px; }
-
-    /* กล่องคำแนะนำ */
     .hint-box{ font-size: .92rem; color: #475569; background: #f8fafc; border: 1px dashed #cbd5e1; border-radius: 8px; padding: 10px 12px; }
     pre.sample{ white-space: pre-wrap; background: #f8f9fa; border: 1px solid #dee2e6; border-radius: 6px; padding: 8px 10px; }
   </style>
@@ -38,12 +27,8 @@
   <div class="container" style="max-width: 760px; margin: 24px auto; padding: 0 15px;">
     <h2 class="mb-3 text-center">เพิ่มผู้เรียนเข้าชั้นเรียน</h2>
 
-    <% if (error) { %>
-      <div class="alert alert-danger text-center"><%= error %></div>
-    <% } %>
-    <% if (success) { %>
-      <div class="alert alert-success text-center"><%= success %></div>
-    <% } %>
+    <% if (error) { %><div class="alert alert-danger text-center"><%= error %></div><% } %>
+    <% if (success) { %><div class="alert alert-success text-center"><%= success %></div><% } %>
     <% if (summary) { %>
       <div class="alert alert-info">
         ทั้งหมด: <b><%= summary.total %></b> |
@@ -55,7 +40,6 @@
       </div>
     <% } %>
 
-    <!-- ใช้ form เดียวรองรับทั้ง "พิมพ์รหัส" และ "อัปโหลดไฟล์" -->
     <form action="/classroom/add-students" method="POST" enctype="multipart/form-data" id="addForm">
       <div class="panel-38">
 
@@ -86,7 +70,6 @@
           <div class="line-38">
             <div class="label-38">รหัสนักเรียน:</div>
             <div class="field-38">
-              <!-- ใช้ textarea (แก้บั๊กจากเดิมที่ JS หา textarea ไม่เจอ) -->
               <textarea class="form-control" name="studentIds" rows="4"
                 placeholder="ใส่หลายคนคั่นด้วย comma, เว้นบรรทัด หรือช่องว่าง เช่น
 65010001, 65010002
@@ -105,6 +88,12 @@
           <div class="line-38">
             <div class="label-38">ไฟล์ Excel/CSV:</div>
             <div class="field-38">
+              <div class="d-flex justify-content-between align-items-center mb-2">
+                <span></span>
+                <a class="btn btn-outline-secondary btn-sm" href="/templates/csv/classroom-students">
+                  ดาวน์โหลดเทมเพลต CSV
+                </a>
+              </div>
               <input type="file" class="form-control" name="file" accept=".xlsx,.xls,.csv">
             </div>
             <span class="required">*</span>
@@ -143,7 +132,7 @@
       modeFile.style.display = (m === 'file') ? '' : 'none';
     });
 
-    // ตรวจฟอร์มก่อนส่ง: ต้องมีอย่างน้อย 1 วิธี (ข้อความหรือไฟล์)
+    // ตรวจฟอร์มก่อนส่ง
     document.getElementById('addForm').addEventListener('submit', function(e){
       const classroomId = document.querySelector('input[name="ClassroomId"]').value.trim();
       const idsText = (document.querySelector('textarea[name="studentIds"]')?.value || '').trim();
@@ -151,26 +140,16 @@
       const hasFile = fileInput && fileInput.files && fileInput.files.length > 0;
 
       if (!classroomId) {
-        e.preventDefault();
-        return alert('ขาดรหัสห้องเรียน');
+        e.preventDefault(); return alert('ขาดรหัสห้องเรียน');
       }
-
-      // ต้องมี idsText หรือ hasFile อย่างน้อยหนึ่ง
       if (!idsText && !hasFile) {
         e.preventDefault();
         const m = modeSelect.value;
-        if (m === 'text') {
-          alert('กรุณากรอกรหัสนักเรียน หรือสลับไปแท็บอัปโหลดไฟล์');
-        } else {
-          alert('กรุณาเลือกไฟล์ Excel/CSV หรือสลับไปแท็บพิมพ์รหัส');
-        }
+        alert(m === 'text' ? 'กรุณากรอกรหัสนักเรียน หรือสลับไปแท็บอัปโหลดไฟล์'
+                           : 'กรุณาเลือกไฟล์ Excel/CSV หรือสลับไปแท็บพิมพ์รหัส');
         return;
       }
-
-      // ยืนยัน
-      if (!confirm('คุณต้องการบันทึกข้อมูลนี้ใช่หรือไม่?')) {
-        e.preventDefault();
-      }
+      if (!confirm('คุณต้องการบันทึกข้อมูลนี้ใช่หรือไม่?')) e.preventDefault();
     });
   </script>
 

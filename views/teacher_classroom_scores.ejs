@@ -15,7 +15,7 @@
   <div class="container my-5">
     <h2 class="text-center mb-4">รายงาน ข้อมูลคะแนนการเช็คชื่อเข้าชั้นเรียนของผู้เรียน</h2>
 
-    <div class="text-center mb-4">
+    <div class="text-center mb-2">
       <div class="fs-5 fw-semibold mb-1">
         ชื่อชั้นเรียน <span class="text-dark"><%= classroom.classroomname %></span>
       </div>
@@ -24,6 +24,15 @@
         <span class="fw-bold text-dark"><%= minPercent %>%</span>
       </div>
     </div>
+
+    <!-- ✅ อธิบายกติกา -->
+    <div class="text-center mb-3">
+  <small class="text-muted">
+    เกณฑ์: <strong>มาสาย 3 ครั้ง = ขาด 1 ครั้ง </strong> และ <strong>ขาดรวม ≥ 3 ครั้ง = ไม่ผ่าน</strong>
+    (เปอร์เซ็นต์คิดจากค่าหลังคิดโทษ)
+  </small>
+</div>
+  
 
     <% if (!hasAnySession) { %>
       <div class="alert alert-info text-center my-3">
@@ -38,9 +47,9 @@
             <th style="width:140px;">รหัสประจำตัว</th>
             <th>ชื่อ</th>
             <th>นามสกุล</th>
-            <th style="width:140px;">จำนวนมาตรงเวลา</th>   <!-- ใหม่ -->
-            <th style="width:140px;">จำนวนมาสาย</th>       <!-- ใหม่ -->
-            <th style="width:160px;">จำนวนเข้าเรียน (รวม)</th><!-- รวม ตรงเวลา+สาย -->
+            <th style="width:140px;">จำนวนมาตรงเวลา</th>
+            <th style="width:140px;">จำนวนมาสาย</th>
+            <th style="width:160px;">จำนวนเข้าเรียน (รวม)</th>
             <th style="width:140px;">จำนวนขาดเรียน</th>
             <th style="width:160px;">เปอร์เซ็นต์การเข้าเรียน</th>
             <th style="width:180px;">สถานะการเข้าเรียน</th>
@@ -53,14 +62,22 @@
               <td class="text-start"><%= s.firstname %></td>
               <td class="text-start"><%= s.surname %></td>
 
-              <!-- ค่าใหม่ที่มาจากแบ็กเอนด์ -->
               <td><%= s.ontime %></td>
               <td><%= s.late %></td>
-
-              <!-- รวม = ตรงเวลา + สาย -->
               <td><%= s.present %></td>
 
-              <td><%= s.absent %></td>
+              <!-- ✅ ขาดเรียน (แสดง tooltip ถ้ามีโทษจากสาย) -->
+              <td>
+  <%= s.absent %>
+  <% if (s._late_penalty && s._late_penalty > 0) { %>
+    <span class="text-muted"
+          title="ขาดจริง: <%= s._absent_raw %> | โทษจากสาย: <%= s._late_penalty %>">
+      (รวมโทษสาย)
+    </span>
+  <% } %>
+</td>
+
+
               <td><%= s.percent %>%</td>
               <td class="text-center">
                 <% if (s.isPass) { %>
