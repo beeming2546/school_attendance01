@@ -14,11 +14,11 @@ const upload = multer({
 // ===== Auto clean attendancetoken every 30s =====
 const TOKEN_TTL_SECONDS = 10;      // ให้ตรงกับ TTL ใน /qr/:id/token
 const CLEAN_INTERVAL_MS  = 900_000; // 1 ชั่วโมง 3_600_000 | 30 นาที 1_800_000 | 15 นาที 900_000
-
+TOKEN_TTL_SECONDS
 setInterval(() => {
   pool.query(
     `DELETE FROM attendancetoken
-      WHERE is_ used = TRUE
+      WHERE is_used = TRUE
          OR created_at < NOW() - ($1 || ' seconds')::interval`,
     [TOKEN_TTL_SECONDS]
   ).catch(e => console.error('token cleanup error:', e));
