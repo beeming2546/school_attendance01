@@ -2126,7 +2126,7 @@ router.get('/classroom/:id/attendance-scores', requireRole('teacher'), async (re
     const classroom  = c.rows[0];
     const minPercent = classroom.minattendancepercent || 0;
 
-    // 2) จำนวนคาบทั้งหมดที่ห้องนี้มีการเช็กชื่อ (อิงข้อมูลจริงใน attendance)
+    // 2) จำนวนคาบที่มีการเช็กชื่อจริง
     const totalRes = await pool.query(
       `SELECT COUNT(DISTINCT date)::int AS total_sessions
          FROM attendance
@@ -2135,7 +2135,7 @@ router.get('/classroom/:id/attendance-scores', requireRole('teacher'), async (re
     );
     const totalSessions = totalRes.rows[0].total_sessions;
 
-    // 3) ดึงสถิติต่อคน: ontime_count = Present, late_count = Late
+    // 3) สถิติต่อคน
     const statsRes = await pool.query(`
       SELECT
         s.studentid,
@@ -2153,48 +2153,40 @@ router.get('/classroom/:id/attendance-scores', requireRole('teacher'), async (re
       ORDER BY s.studentid
     `, [classroomId]);
 
-    // 4) คิดเกณฑ์: 3 มาสาย = ขาด 1, ขาดรวม ≥ 3 ⇒ ไม่ผ่าน
+    // 4) เกณฑ์: 3 มาสาย = ขาด 1  (เอาเงื่อนไข "ขาดรวม ≥ 3 ⇒ ไม่ผ่าน" ออก)
     const rows = statsRes.rows.map(r => {
-      const ontime = Number(r.ontime_count) || 0;   // มาตรงเวลา (Present)
-      const late   = Number(r.late_count)   || 0;   // มาสาย (Late)
+      const ontime = Number(r.ontime_count) || 0;
+      const late   = Number(r.late_count)   || 0;
 
-      // มาเรียน "ดิบ" = ตรงเวลา + สาย
       const presentRaw = ontime + late;
-      // ขาด "ดิบ" (ยังไม่คิดโทษจากสาย)
       const absentRaw  = Math.max(0, totalSessions - presentRaw);
 
-      // ✅ โทษจากสาย: 3 สาย = ขาด 1
       const latePenalty = Math.floor(late / 3);
 
-      // ✅ ขาด "หลังคิดโทษ"
       const absentEffective  = absentRaw + latePenalty;
-      // ✅ มาเรียน "หลังคิดโทษ"
       const presentEffective = Math.max(0, totalSessions - absentEffective);
 
-      // เปอร์เซ็นต์คิดจากค่าหลังคิดโทษ
       const percent = totalSessions
         ? Math.round((presentEffective / totalSessions) * 100)
         : 0;
 
-      // ✅ ผ่านเมื่อ: เปอร์เซ็นต์ ≥ minPercent และ ขาดหลังคิดโทษ < 3
-      const isPass = percent >= minPercent && absentEffective < 3;
+      // ✅ ผ่านเมื่อ: เปอร์เซ็นต์ ≥ minPercent (ไม่มีเกณฑ์ "ขาดรวม ≥ 3" แล้ว)
+      const isPass = percent >= minPercent;
 
       return {
         studentid: r.studentid,
         firstname: r.firstname,
         surname:   r.surname,
 
-        // ค่าไว้แสดงผล
-        ontime,                   // จำนวนมาตรงเวลา
-        late,                     // จำนวนมาสาย
-        present: presentRaw,      // จำนวนเข้าเรียน (รวม = ontime + late)
-        absent:  absentEffective, // จำนวนขาดเรียน (หลังคิดโทษ)
+        ontime,
+        late,
+        present: presentRaw,
+        absent:  absentEffective,
         percent,
         isPass,
 
-        // (ออปชัน) tooltip อธิบายที่มาของ "ขาด"
-        _absent_raw: absentRaw,       // ขาดจริงก่อนคิดโทษ
-        _late_penalty: latePenalty,   // โทษจากสายที่แปลงเป็นขาด
+        _absent_raw: absentRaw,
+        _late_penalty: latePenalty,
       };
     });
 
@@ -2213,9 +2205,6 @@ router.get('/classroom/:id/attendance-scores', requireRole('teacher'), async (re
     res.status(500).send('เกิดข้อผิดพลาดในการโหลดคะแนนการเช็คชื่อ');
   }
 });
-
-
-
 
 
 // ประวัติการเช็คชื่อของ "นักศีกษาที่ล็อกอินอยู่" ในห้องนี้
@@ -2285,7 +2274,8 @@ router.get('/student/classroom/:id/attendance-score', requireRole('student'), as
        FROM classroom WHERE classroomid=$1`,
       [classroomId]
     );
-    const minPercent = room?.minattendancepercent || 0;
+    if (!room) return res.status(404).send('ไม่พบชั้นเรียนนี้');
+    const minPercent = room.minattendancepercent || 0;
 
     // 3) จำนวนคาบทั้งหมดของห้องนี้ (นับเฉพาะคาบที่มีการเช็กชื่อเกิดขึ้นจริง)
     const { rows: [tot] } = await pool.query(
@@ -2307,7 +2297,7 @@ router.get('/student/classroom/:id/attendance-score', requireRole('student'), as
     const ontime = st?.ontime_count || 0;
     const late   = st?.late_count   || 0;
 
-    // 5) คิดกติกา: 3 สาย = ขาด 1, ขาดรวม ≥ 3 ⇒ ไม่ผ่าน
+    // 5) กติกา: 3 สาย = ขาด 1  (เอาเงื่อนไข "ขาดรวม ≥ 3 ⇒ ไม่ผ่าน" ออก)
     const presentRaw = ontime + late;                         // มาเรียน(ดิบ)
     const absentRaw  = Math.max(0, totalSessions - presentRaw);
     const latePenalty      = Math.floor(late / 3);            // ✅ 3 สาย = ขาด 1
@@ -2318,37 +2308,35 @@ router.get('/student/classroom/:id/attendance-score', requireRole('student'), as
       ? Math.round((presentEffective / totalSessions) * 100)
       : 0;
 
-    const isPass = percent >= minPercent && absentEffective < 3;
+    // ✅ ผ่านเมื่อ: เปอร์เซ็นต์ ≥ minPercent (ไม่มีเกณฑ์ "ขาดรวม ≥ 3" แล้ว)
+    const isPass = percent >= minPercent;
 
     return res.render('student_attendance_score', {
-  classroom: room,
-  totalSessions,
-  ontime,
-  late,
-  present: presentRaw,
-  absent:  absentEffective,
-  percent,
-  minPercent,
-  isPass,
+      classroom: room,
+      totalSessions,
+      ontime,
+      late,
+      present: presentRaw,
+      absent:  absentEffective,
+      percent,
+      minPercent,
+      isPass,
 
-  // (ออปชัน) อธิบายที่มาของ "ขาด"
-  _absent_raw: absentRaw,
-  _late_penalty: latePenalty,
+      // (ออปชัน) อธิบายที่มาของ "ขาด"
+      _absent_raw: absentRaw,
+      _late_penalty: latePenalty,
 
-  // ✅ เพิ่มบรรทัดนี้
-  hasAnySession: totalSessions > 0,
+      hasAnySession: totalSessions > 0,
 
-  showNavbar: true,
-  currentUser: req.session.user,
-  currentRole: req.session.role
-});
+      showNavbar: true,
+      currentUser: req.session.user,
+      currentRole: req.session.role
+    });
 
   } catch (err) {
     console.error('student score error:', err);
     res.status(500).send('เกิดข้อผิดพลาดในการโหลดคะแนนของคุณ');
   }
 });
-
-
 
 module.exports = router;
