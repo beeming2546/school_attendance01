@@ -22,15 +22,6 @@
       <div class="text-center text-muted mb-2">
         ชื่อชั้นเรียน <span class="fw-semibold text-dark"><%= classroom.classroomname %></span>
       </div>
-
-      <!-- ✅ อธิบายกติกาให้ชัด -->
-      <div class="text-center mb-3">
-        <small class="text-muted">
-          เกณฑ์: <strong>3 มาสาย = ขาด 1</strong>
-          (เปอร์เซ็นต์คิดจากค่าหลังคิดโทษ)
-        </small>
-      </div>
-
       <% if (!hasAnySession) { %>
         <div class="alert alert-info text-center my-3">ยังไม่มีการเช็คชื่อของชั้นเรียนนี้</div>
       <% } else { %>
@@ -53,15 +44,7 @@
           </li>
           <li class="list-group-item d-flex justify-content-between align-items-center">
             <span class="label">จำนวนขาดเรียน</span>
-            <span class="fw-semibold">
-              <%= absent %>
-              <% if (_late_penalty && _late_penalty > 0) { %>
-                <span class="text-muted ms-1"
-                  title="ขาดจริง: <%= _absent_raw %> | โทษจากสาย (3 สาย = ขาด 1): <%= _late_penalty %>">
-                  (รวมโทษสาย)
-                </span>
-              <% } %>
-            </span>
+            <span class="fw-semibold"><%= absent %></span>
           </li>
           <li class="list-group-item d-flex justify-content-between">
             <span class="label">เปอร์เซ็นต์การเข้าเรียน</span>

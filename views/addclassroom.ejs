@@ -14,31 +14,31 @@
     label { font-weight: 500; }
     .btn-group { display: flex; justify-content: center; gap: 15px; margin-top: 25px; }
     .btn-group button, .btn-group a.btn { min-width: 150px; }
-  </style>
-  <script>
-    function validateForm() {
-      const form = document.forms["addClassForm"];
-      const requiredFields = [
-        "ClassroomName",
-        "RoomNumber",
-        "Description",
-        "MinAttendancePercent",
-        "academic_year",   // ✅ เช็คปีการศึกษา (พ.ศ.)
-        "semester_no"      // ✅ เช็คภาค 1–3
-      ];
-      for (let field of requiredFields) {
-        if (!form[field].value.trim()) {
-          alert("กรุณากรอกข้อมูลให้ครบทุกช่อง");
-          return false;
-        }
-      }
-      return confirm("คุณต้องการบันทึกข้อมูลนี้ใช่หรือไม่?");
+    .note { color: #000 !important; }
+    .under-stack{
+    margin-left:140px;
+    display:flex;
+    flex-direction:column;
+    gap:4px;              
     }
-  </script>
-  <script>
-    flatpickr("#start_time", { enableTime: true, noCalendar: true, dateFormat: "H:i", time_24hr: true });
-    flatpickr("#end_time",   { enableTime: true, noCalendar: true, dateFormat: "H:i", time_24hr: true });
-  </script>
+    .under-stack .note,
+    .under-stack #dupHint{
+    display:block;
+    margin:0;              
+    line-height:1.35;
+    }
+    /* ปุ่ม primary เมื่อ disabled ให้เป็นสีเทา */
+    .btn-primary:disabled,
+    .btn-primary.disabled,
+    .btn-primary[disabled] {
+      background-color: #6c757d !important;  /* เทา */
+      border-color: #6c757d !important;
+      color: #ffffff !important;
+      cursor: not-allowed;
+      opacity: 1 !important; /* ตัดความโปร่งจาก bootstrap */
+      box-shadow: none !important;
+    }
+  </style>
 </head>
 <body>
   <% if (showNavbar) { %>
@@ -52,12 +52,23 @@
       <p class="text-danger text-center"><%= error %></p>
     <% } %>
 
-    <form name="addClassForm" action="/classroom/add" method="POST" onsubmit="return validateForm();">
+    <form name="addClassForm"
+          action="/classroom/add"
+          method="POST"
+          onsubmit="return handleSubmit(event);">
+
       <div class="form-row">
         <label>ชื่อห้องเรียน:</label>
-        <input type="text" name="ClassroomName" required><span class="required">*</span>
+        <input id="ClassroomName" type="text" name="ClassroomName" required>
+        <span class="required">*</span>
       </div>
-
+      <div class="under-stack">
+        <span id="dupHint" class="text-danger small"></span>
+        <small class="note">
+        คำแนะนำ: ชื่อชั้นเรียนให้ตั้งเป็น = ชื่อชั้นเรียน กลุ่ม/sec 1,2,3 เช่น DB กลุ่ม 1 หรือ DB sec 2
+        </small>
+      </div>
+      
       <div class="form-row">
         <label>เลขห้อง:</label>
         <input type="text" name="RoomNumber" required><span class="required">*</span>
@@ -70,7 +81,7 @@
 
       <div class="form-row">
         <label>เปอร์เซ็นต์เข้าเรียนขั้นต่ำ:</label>
-        <input type="number" name="MinAttendancePercent" value="75" min="0" max="100" required>%<span class="required">*</span>
+        <input type="number" name="MinAttendancePercent" value="80" min="0" max="100" required readonly>%<span class="required">*</span>
       </div>
 
       <!-- ✅ ภาคเรียน: ปีการศึกษา (พ.ศ.) + ภาค -->
@@ -142,11 +153,120 @@
       </div>
 
       <center>
-        <button type="submit" class="btn btn-primary">บันทึก</button>
+        <button id="btnSubmit" type="submit" class="btn btn-primary">บันทึก</button>
         <a href="/classroom" class="btn btn-secondary">ย้อนกลับ</a>
       </center>
     </form>
   </div>
+
+  <script>
+    // --- Realtime duplicate check (optional UX ดีขึ้น) ---
+    function debounce(fn, delay=300){ let t; return (...a)=>{ clearTimeout(t); t=setTimeout(()=>fn(...a),delay); }; }
+    let lastDup = false;
+
+    async function checkDuplicate() {
+      const name = document.querySelector('#ClassroomName')?.value?.trim() || '';
+      const year = document.querySelector('select[name="academic_year"]')?.value?.trim() || '';
+      const sem  = document.querySelector('select[name="semester_no"]')?.value?.trim() || '';
+      const $hint = document.getElementById('dupHint');
+      const $btn  = document.getElementById('btnSubmit');
+
+      $hint.textContent = '';
+      lastDup = false;
+
+      if (!name || !year || !sem) { $btn?.removeAttribute('disabled'); return; }
+
+      try {
+        const qs = new URLSearchParams({ name, academic_year: year, semester_no: sem }).toString();
+        const res = await fetch(`/api/classroom/check-duplicate?${qs}`, {
+          method: 'GET',
+          credentials: 'same-origin',
+          headers: { 'Accept': 'application/json' }
+        });
+        if (!res.ok) throw new Error('network');
+        const data = await res.json();
+        lastDup = !!data.duplicate;
+        if (lastDup) {
+          $hint.textContent = 'มีชื่อชั้นเรียนนี้อยู่แล้วใน เทอม/ปีการศึกษานี้';
+          $btn?.setAttribute('disabled', 'disabled');
+        } else {
+          $btn?.removeAttribute('disabled');
+        }
+      } catch(e) {
+        $btn?.removeAttribute('disabled');
+      }
+    }
+    const triggerCheck = debounce(checkDuplicate, 250);
+
+    document.addEventListener('DOMContentLoaded', () => {
+      ['#ClassroomName','select[name="academic_year"]','select[name="semester_no"]']
+        .forEach(sel => {
+          document.querySelector(sel)?.addEventListener('input', triggerCheck);
+          document.querySelector(sel)?.addEventListener('change', triggerCheck);
+        });
+    });
+
+    // --- ด่านสุดท้ายตอน submit: กันส่งทันที + เช็คซ้ำสด ---
+    function _basicValidate() {
+      const form = document.forms["addClassForm"];
+      const required = ["ClassroomName","RoomNumber","Description","MinAttendancePercent","academic_year","semester_no"];
+      for (let f of required) {
+        if (!form[f].value.trim()) { alert("กรุณากรอกข้อมูลให้ครบทุกช่อง"); return false; }
+      }
+      return true;
+    }
+
+    async function handleSubmit(e) {
+      e.preventDefault(); // ✅ กันฟอร์มส่งทันที
+      const form = e.target;
+      const name = document.querySelector('#ClassroomName')?.value?.trim() || '';
+      const year = document.querySelector('select[name="academic_year"]')?.value?.trim() || '';
+      const sem  = document.querySelector('select[name="semester_no"]')?.value?.trim() || '';
+      const $hint = document.getElementById('dupHint');
+      const $btn  = document.getElementById('btnSubmit');
+
+      if (!_basicValidate()) return false;
+
+      try {
+        $btn?.setAttribute('disabled','disabled');
+
+        const qs = new URLSearchParams({ name, academic_year: year, semester_no: sem }).toString();
+        const res = await fetch(`/api/classroom/check-duplicate?${qs}`, {
+          method: 'GET',
+          credentials: 'same-origin',
+          headers: {
+            'Accept': 'application/json',
+            'X-Requested-With': 'XMLHttpRequest'
+          }
+        });
+
+        const ct = res.headers.get('content-type') || '';
+        if (!res.ok || !ct.includes('application/json')) throw new Error('bad_response');
+
+        const data = await res.json();
+
+        if (data.duplicate) {
+          $hint.textContent = 'มีชื่อชั้นเรียนนี้อยู่แล้วใน เทอม/ปีการศึกษานี้';
+          alert('ชื่อชั้นเรียนซ้ำในเทอม/ปีนี้ กรุณาเปลี่ยนชื่อ');
+          $btn?.removeAttribute('disabled');
+          return false;
+        }
+
+        // ผ่าน — ยืนยันแล้วค่อยส่งจริง (redirect ปกติ)
+        if (confirm("คุณต้องการบันทึกข้อมูลนี้ใช่หรือไม่?")) {
+          form.submit();
+        } else {
+          $btn?.removeAttribute('disabled');
+        }
+        return false;
+      } catch (err) {
+        console.error(err);
+        alert('ไม่สามารถตรวจสอบความซ้ำได้ กรุณาลองใหม่');
+        $btn?.removeAttribute('disabled');
+        return false;
+      }
+    }
+  </script>
 
   <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0-alpha1/dist/js/bootstrap.bundle.min.js"></script>
 </body>

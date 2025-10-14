@@ -72,12 +72,11 @@
             <thead class="table-secondary">
               <tr class="text-center">
                 <th>ชื่อห้องเรียน</th>
+                <th>ภาคเรียน</th>
+                <th>วัน/เวลาเรียน</th>
                 <th>เลขห้อง</th>
                 <th>อาจารย์</th>
                 <th>คำอธิบายชั้นเรียน</th>
-                <th>เปอร์เซ็นต์เข้าเรียนขั้นต่ำ</th>
-                <th>ภาคเรียน</th>
-                <th>วัน/เวลาเรียน</th>
                 <th class="text-center">การจัดการ</th>
               </tr>
             </thead>
@@ -85,10 +84,6 @@
               <% classrooms.forEach(cls => { %>
                 <tr>
                   <td class="text-start"><%= cls.classroomname %></td>
-                  <td class="text-center"><%= cls.roomnumber %></td>
-                  <td class="text-center"><%= cls.teacher_fullname %></td>
-                  <td class="text-start"><%= cls.description %></td>
-                  <td class="text-center"><%= cls.minattendancepercent %> %</td>
                   <td class="text-center">
                     <% const y = Number(cls.academic_year); %>
                     <%= (Number.isFinite(y) && cls.semester != null)
@@ -100,6 +95,10 @@
                     <%= cls.start_time ? ' ' + hhmm(cls.start_time) : '' %>
                     <%= cls.end_time   ? '–' + hhmm(cls.end_time)   : '' %>
                   </td>
+                  <td class="text-center"><%= cls.roomnumber %></td>
+                  <td class="text-center"><%= cls.teacher_fullname %></td>
+                  <td class="text-start"><%= cls.description %></td>
+                  
                   <td class="p-1 text-center">
                     <div class="d-flex gap-2 justify-content-center">
                       <a href="/classroom/view/<%= cls.classroomid %>" class="btn btn-info btn-sm">เข้า class</a>
@@ -134,12 +133,11 @@
             <thead class="table-secondary">
               <tr class="text-center">
                 <th>ชื่อห้องเรียน</th>
+                <th>ภาคเรียน</th>
+                <th>วัน/เวลาเรียน</th>
                 <th>เลขห้อง</th>
                 <th>อาจารย์</th>
                 <th>คำอธิบายชั้นเรียน</th>
-                <th>เปอร์เซ็นต์เข้าเรียนขั้นต่ำ</th>
-                <th>ภาคเรียน</th>
-                <th>วัน/เวลาเรียน</th>
                 <th class="text-center">รายละเอียด</th>
               </tr>
             </thead>
@@ -147,10 +145,6 @@
               <% classrooms.forEach(cls => { %>
                 <tr>
                   <td class="text-start"><%= cls.classroomname %></td>
-                  <td class="text-center"><%= cls.roomnumber %></td>
-                  <td class="text-center"><%= cls.teacher_fullname %></td>
-                  <td class="text-start"><%= cls.description %></td>
-                  <td class="text-center"><%= cls.minattendancepercent %> %</td>
                   <td class="text-center">
                     <%= (cls.academic_year != null && cls.semester != null)
                           ? ('ภาคที่ ' + cls.semester + ' / ' + cls.academic_year)
@@ -161,6 +155,9 @@
                     <%= cls.start_time ? ' ' + hhmm(cls.start_time) : '' %>
                     <%= cls.end_time   ? '–' + hhmm(cls.end_time)   : '' %>
                   </td>
+                  <td class="text-center"><%= cls.roomnumber %></td>
+                  <td class="text-center"><%= cls.teacher_fullname %></td>
+                  <td class="text-start"><%= cls.description %></td>
                   <td class="text-center">
                     <a href="/classroom/view/<%= cls.classroomid %>" class="btn btn-info btn-sm">ดูรายละเอียด</a>
                   </td>
