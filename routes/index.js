@@ -105,6 +105,29 @@ async function getOrCreateTermId(academicYearBE, semesterNo) {
   return ins.rows[0].term_id;
 }
 
+// helper สำหรับล็อก (วางไว้ด้านบนไฟล์ครั้งเดียวพอ)
+const lockSql = `
+  SELECT pg_advisory_xact_lock(
+    ( ($1::bigint << 32) # hashtextextended(lower(btrim($2)), 0) )
+  )
+`;
+
+// ถ้ายังไม่มี helper เช็กซ้ำ
+async function isDuplicateClassroomName(termId, name, excludeId = null) {
+  const params = [termId, name];
+  let sql = `
+    SELECT 1
+    FROM classroom
+    WHERE term_id = $1
+      AND lower(btrim(classroomname)) = lower(btrim($2))
+  `;
+  if (excludeId) {
+    sql += ` AND classroomid <> $3`;
+    params.push(excludeId);
+  }
+  const { rowCount } = await pool.query(sql, params);
+  return rowCount > 0;
+}
 
 // ===== CSV Templates =====
 router.get('/templates/csv/:kind', requireAnyRole (['admin' , 'teacher']), (req, res) => {
@@ -935,7 +958,37 @@ router.get('/classroom', requireAnyRole(['teacher', 'student']), async (req, res
   }
 });
 
+// เช็กชื่อห้องซ้ำในภาค/ปีเดียวกัน (ตอบ JSON เสมอ)
+router.get('/api/classroom/check-duplicate', async (req, res) => {
+  try {
+    // เช็คสิทธิ์แบบ manual เพื่อไม่ให้ middleware redirect
+    if (!req.session?.user || req.session.role !== 'teacher') {
+      return res.status(401).json({ duplicate: false, error: 'unauthorized' });
+    }
 
+    const { academic_year, semester_no, name, exclude_id } = req.query;
+    if (!academic_year || !semester_no || !name) {
+      return res.status(400).json({ duplicate: false, error: 'bad_request' });
+    }
+
+    const term_id = await getOrCreateTermId(Number(academic_year), Number(semester_no));
+
+    const params = [term_id, name];
+    let sql = `
+      SELECT 1
+      FROM classroom
+      WHERE term_id = $1
+        AND lower(btrim(classroomname)) = lower(btrim($2))
+    `;
+    if (exclude_id) { sql += ` AND classroomid <> $3`; params.push(exclude_id); }
+
+    const { rowCount } = await pool.query(sql, params);
+    return res.json({ duplicate: rowCount > 0 });
+  } catch (e) {
+    console.error('check-duplicate error:', e);
+    return res.status(500).json({ duplicate: false, error: 'server_error' });
+  }
+});
 
 //------------------------------------------------------------------
 //--------------------------ADD CLASSROOM---------------------------
@@ -965,36 +1018,73 @@ router.get('/classroom/add', requireRole('teacher'), async (req, res) => {
   }
 });
 
-
-
-
-
-
 // POST: บันทึก classroom ใหม่ (เฉพาะอาจารย์)
 router.post('/classroom/add', requireRole('teacher'), async (req, res) => {
+  const client = await pool.connect();
+  // ✅ บอกเซิร์ฟเวอร์ว่าเป็น AJAX ไหม (มาจาก fetch)
+  const wantsJson = req.get('X-Requested-With') === 'XMLHttpRequest';
+
   try {
     const teacherId = req.session.user.teacherid;
 
-    const {
+    let {
       ClassroomName, RoomNumber, Description,
       MinAttendancePercent, day_of_week,
-      academic_year,          // ✅ ปี พ.ศ. จากฟอร์ม
-      semester_no             // ✅ ภาค 1-3 จากฟอร์ม
+      academic_year,          // ปี พ.ศ.
+      semester_no             // ภาค 1-3
     } = req.body;
+
+    // normalize
+    ClassroomName = (ClassroomName || '').trim();
+    RoomNumber    = (RoomNumber || '').trim();
+    Description   = (Description || '').trim();
+    day_of_week   = (day_of_week || '').trim();
+    academic_year = Number(academic_year);
+    semester_no   = Number(semester_no);
 
     const start_time = resolveTimeFromBody(req.body, 'start');
     const end_time   = resolveTimeFromBody(req.body, 'end');
 
-    if (!ClassroomName || !RoomNumber || !Description || !MinAttendancePercent ||
-        !day_of_week || !start_time || !end_time || !academic_year || !semester_no) {
-      req.session.error = 'กรุณากรอกข้อมูลให้ครบถ้วน';
+    const missing =
+      !ClassroomName || !RoomNumber || !Description || !MinAttendancePercent ||
+      !day_of_week || !start_time || !end_time || !academic_year || !semester_no;
+
+    if (missing) {
+      const msg = 'กรุณากรอกข้อมูลให้ครบถ้วน';
+      if (wantsJson) return res.status(400).json({ ok: false, message: msg });
+      req.session.error = msg;
       return res.redirect('/classroom/add');
     }
 
-    // ✅ หา/สร้าง term_id จาก ปี (พ.ศ.) และ ภาค
-    const term_id = await getOrCreateTermId(Number(academic_year), Number(semester_no));
+    const term_id = await getOrCreateTermId(academic_year, semester_no);
 
-    await pool.query(
+    await client.query('BEGIN');
+
+    // 🔐 ล็อกตาม term_id + name ป้องกันชนกันระหว่างคำขอพร้อมกัน
+    await client.query(`
+      SELECT pg_advisory_xact_lock(
+        ( ($1::bigint << 32) # hashtextextended(lower(btrim($2)), 0) )
+      )
+    `, [term_id, ClassroomName]);
+
+    // ✅ เช็กชื่อซ้ำภายหลังล็อก (ใช้ client เดียวกับทรานแซกชัน)
+    const { rowCount: dupCount } = await client.query(
+      `SELECT 1
+       FROM classroom
+       WHERE term_id = $1
+         AND lower(btrim(classroomname)) = lower(btrim($2))`,
+      [term_id, ClassroomName]
+    );
+    if (dupCount > 0) {
+      await client.query('ROLLBACK');
+      const msg = 'มีชื่อห้องนี้อยู่แล้วในภาค/ปีการศึกษาเดียวกัน';
+      if (wantsJson) return res.status(409).json({ ok: false, message: msg });
+      req.session.error = msg;
+      return res.redirect('/classroom/add');
+    }
+
+    // 📝 บันทึก
+    await client.query(
       `INSERT INTO classroom
        (classroomname, roomnumber, description, minattendancepercent, teacherid,
         day_of_week, start_time, end_time, term_id)
@@ -1012,15 +1102,25 @@ router.post('/classroom/add', requireRole('teacher'), async (req, res) => {
       ]
     );
 
+    await client.query('COMMIT');
+
+    if (wantsJson) return res.json({ ok: true });
     return res.redirect('/classroom');
   } catch (err) {
-    console.error(err);
-    req.session.error = 'เกิดข้อผิดพลาดในการบันทึกห้องเรียน';
+    try { await client.query('ROLLBACK'); } catch (_) {}
+    console.error('create classroom error:', err);
+
+    const msg = (err.code === '23505')
+      ? 'มีชื่อห้องนี้อยู่แล้วในภาค/ปีการศึกษาเดียวกัน'
+      : 'เกิดข้อผิดพลาดในการบันทึกห้องเรียน';
+
+    if (wantsJson) return res.status(500).json({ ok: false, message: msg });
+    req.session.error = msg;
     return res.redirect('/classroom/add');
+  } finally {
+    client.release();
   }
 });
-
-
 
 //------------------------------------------------------------------
 //--------------------------VIEW CLASSROOM---------------------------
@@ -1105,11 +1205,12 @@ router.get('/classroom/edit/:id', requireRole('teacher'), async (req, res) => {
   }
 });
 
-
-
 // POST: แก้ไขห้องเรียน
 router.post('/classroom/edit/:id', requireRole('teacher'), async (req, res) => {
-  const id = req.params.id;
+  const classroomId = Number(req.params.id);
+  const teacherId   = req.session.user?.teacherid;
+  const client = await pool.connect();
+
   try {
     const {
       ClassroomName, RoomNumber, Description,
@@ -1117,48 +1218,103 @@ router.post('/classroom/edit/:id', requireRole('teacher'), async (req, res) => {
       academic_year, semester_no
     } = req.body;
 
-    const start_time = resolveTimeFromBody(req.body, 'start');
-    const end_time   = resolveTimeFromBody(req.body, 'end');
+    const start_time = resolveTimeFromBody(req.body, 'start'); // 'HH:MM'
+    const end_time   = resolveTimeFromBody(req.body, 'end');   // 'HH:MM'
+
+    // ตรวจสิทธิ์ความเป็นเจ้าของ
+    const own = await pool.query(
+      `SELECT 1 FROM classroom WHERE classroomid = $1 AND teacherid = $2`,
+      [classroomId, teacherId]
+    );
+    if (own.rowCount === 0) {
+      req.session.error = 'คุณไม่มีสิทธิ์แก้ไขห้องเรียนนี้';
+      return res.redirect('/classroom');
+    }
 
     if (!ClassroomName || !RoomNumber || !Description || !MinAttendancePercent ||
         !day_of_week || !start_time || !end_time || !academic_year || !semester_no) {
       req.session.error = 'กรุณากรอกข้อมูลให้ครบถ้วน';
-      return res.redirect(`/classroom/edit/${id}`);
+      return res.redirect(`/classroom/edit/${classroomId}`);
     }
 
     const term_id = await getOrCreateTermId(Number(academic_year), Number(semester_no));
 
-    await pool.query(
+    await client.query('BEGIN');
+
+    // 🔐 ล็อกคู่ (term_id + ชื่อห้อง) กันชนกันหลายคำขอ
+    await client.query(lockSql, [term_id, ClassroomName]);
+
+    // ✅ เช็กชื่อซ้ำภายในเทอมเดียวกัน โดย "ยกเว้น" ห้องตัวเอง
+    const dup = await client.query(
+      `SELECT 1
+         FROM classroom
+        WHERE term_id = $1
+          AND lower(btrim(classroomname)) = lower(btrim($2))
+          AND classroomid <> $3
+        LIMIT 1`,
+      [term_id, ClassroomName, classroomId]
+    );
+    if (dup.rowCount > 0) {
+      await client.query('ROLLBACK');
+      req.session.error = 'มีชื่อชั้นเรียนนี้อยู่แล้วใน ภาค/ปีการศึกษาเดียวกัน';
+      return res.redirect(`/classroom/edit/${classroomId}`);
+    }
+
+    // 📝 อัปเดต
+    const result = await client.query(
       `UPDATE classroom
-       SET classroomname=$1, roomnumber=$2, description=$3,
-           minattendancepercent=$4, day_of_week=$5, start_time=$6, end_time=$7,
-           term_id=$8
-       WHERE classroomid=$9`,
+          SET classroomname=$1,
+              roomnumber=$2,
+              description=$3,
+              minattendancepercent=$4,
+              day_of_week=$5,
+              start_time=$6,
+              end_time=$7,
+              term_id=$8
+        WHERE classroomid=$9
+          AND teacherid=$10`,
       [
-        ClassroomName, RoomNumber, Description,
+        ClassroomName,
+        RoomNumber,
+        Description,
         parseInt(MinAttendancePercent, 10),
-        day_of_week, start_time, end_time,
-        term_id, id
+        day_of_week,
+        start_time,
+        end_time,
+        term_id,
+        classroomId,
+        teacherId,
       ]
     );
 
+    await client.query('COMMIT');
+
+    if (result.rowCount === 0) {
+      req.session.error = 'ไม่สามารถอัปเดตข้อมูลได้';
+      return res.redirect(`/classroom/edit/${classroomId}`);
+    }
+
     return res.redirect('/classroom');
   } catch (err) {
+    try { await client.query('ROLLBACK'); } catch (_) {}
     console.error(err);
     req.session.error = 'เกิดข้อผิดพลาดในการแก้ไขห้องเรียน';
-    return res.redirect(`/classroom/edit/${id}`);
+    return res.redirect(`/classroom/edit/${classroomId}`);
+  } finally {
+    client.release();
   }
 });
 
-
-
-// Route ลบห้องเรียน
+// ลบห้องเรียน (เดิมถูกต้องแล้ว)
 router.post('/classroom/delete/:id', requireRole('teacher'), async (req, res) => {
-  const classroomId = req.params.id;
+  const classroomId = Number(req.params.id);
   const teacherId = req.session.user.teacherid;
 
   try {
-    await pool.query('DELETE FROM Classroom WHERE ClassroomId = $1 AND TeacherId = $2', [classroomId, teacherId]);
+    await pool.query(
+      'DELETE FROM classroom WHERE classroomid = $1 AND teacherid = $2',
+      [classroomId, teacherId]
+    );
     res.redirect('/classroom');
   } catch (err) {
     console.error(err);
@@ -1625,9 +1781,6 @@ router.get('/qr/:id', requireRole('teacher'), async (req, res) => {
   }
 });
 
-
-
-
 // นักศีกษาสแกน token เพื่อเช็กชื่อ
 // นักศีกษาสแกน → ตรวจ token แล้วบอกให้ไปหน้า confirm
 router.post('/api/scan', requireRole('student'), async (req, res) => {
@@ -1769,9 +1922,7 @@ router.post('/classroom/:id/select-date', requireRole('teacher'), async (req, re
   }
 });
 
-
 // ===== สร้างโทเคนของคาบ พร้อมกำหนดเวลาตัดสาย =====
-
 
 router.post('/classroom/:id/generate-token', requireRole('teacher'), async (req, res) => {
   const classroomId = Number(req.params.id);
@@ -1813,8 +1964,6 @@ router.post('/classroom/:id/generate-token', requireRole('teacher'), async (req,
     return res.redirect(`/classroom/view/${classroomId}`);
   }
 });
-
-
 
 // ========== หน้ายืนยันการเช็คชื่อ (นักศีกษากดจากลิงก์ใน QR) ==========
 // GET /attendance/confirm/:token — แสดงหน้ายืนยันหลังสแกน (ยังไม่บันทึก)
@@ -2108,7 +2257,6 @@ router.get('/classroom/:id/history', requireRole('teacher'), async (req, res) =>
 
 // คะแนนการเช็คชื่อ "ทั้งห้อง" (ฝั่งอาจารย์)
 
-// คะแนนการเช็กชื่อรวมทั้งห้อง + กติกา 3 สาย = ขาด 1, ขาดรวม ≥ 3 = ไม่ผ่าน
 router.get('/classroom/:id/attendance-scores', requireRole('teacher'), async (req, res) => {
   const classroomId = Number(req.params.id);
   const teacherId   = req.session.user.teacherid;
@@ -2135,7 +2283,7 @@ router.get('/classroom/:id/attendance-scores', requireRole('teacher'), async (re
     );
     const totalSessions = totalRes.rows[0].total_sessions;
 
-    // 3) สถิติต่อคน
+    // 3) สถิติต่อคน (นับทั้ง Present และ Late เป็นการมาเรียน)
     const statsRes = await pool.query(`
       SELECT
         s.studentid,
@@ -2153,40 +2301,30 @@ router.get('/classroom/:id/attendance-scores', requireRole('teacher'), async (re
       ORDER BY s.studentid
     `, [classroomId]);
 
-    // 4) เกณฑ์: 3 มาสาย = ขาด 1  (เอาเงื่อนไข "ขาดรวม ≥ 3 ⇒ ไม่ผ่าน" ออก)
+    // 4) ไม่มีการหักสาย: absent = คาบทั้งหมด - (ontime + late)
     const rows = statsRes.rows.map(r => {
       const ontime = Number(r.ontime_count) || 0;
       const late   = Number(r.late_count)   || 0;
 
-      const presentRaw = ontime + late;
-      const absentRaw  = Math.max(0, totalSessions - presentRaw);
-
-      const latePenalty = Math.floor(late / 3);
-
-      const absentEffective  = absentRaw + latePenalty;
-      const presentEffective = Math.max(0, totalSessions - absentEffective);
+      const present = ontime + late;
+      const absent  = Math.max(0, totalSessions - present);
 
       const percent = totalSessions
-        ? Math.round((presentEffective / totalSessions) * 100)
+        ? Math.round((present / totalSessions) * 100)
         : 0;
 
-      // ✅ ผ่านเมื่อ: เปอร์เซ็นต์ ≥ minPercent (ไม่มีเกณฑ์ "ขาดรวม ≥ 3" แล้ว)
       const isPass = percent >= minPercent;
 
       return {
         studentid: r.studentid,
         firstname: r.firstname,
         surname:   r.surname,
-
         ontime,
         late,
-        present: presentRaw,
-        absent:  absentEffective,
+        present,
+        absent,
         percent,
-        isPass,
-
-        _absent_raw: absentRaw,
-        _late_penalty: latePenalty,
+        isPass
       };
     });
 
@@ -2277,7 +2415,7 @@ router.get('/student/classroom/:id/attendance-score', requireRole('student'), as
     if (!room) return res.status(404).send('ไม่พบชั้นเรียนนี้');
     const minPercent = room.minattendancepercent || 0;
 
-    // 3) จำนวนคาบทั้งหมดของห้องนี้ (นับเฉพาะคาบที่มีการเช็กชื่อเกิดขึ้นจริง)
+    // 3) จำนวนคาบทั้งหมด (เฉพาะคาบที่มีการเช็กชื่อจริง)
     const { rows: [tot] } = await pool.query(
       `SELECT COUNT(DISTINCT date)::int AS total_sessions
        FROM attendance WHERE classroomid=$1`,
@@ -2285,7 +2423,7 @@ router.get('/student/classroom/:id/attendance-score', requireRole('student'), as
     );
     const totalSessions = tot?.total_sessions || 0;
 
-    // 4) นับของ "นักเรียนคนนี้" แยกตรงเวลา/สาย
+    // 4) นับของนักเรียนคนนี้ (แยกตรงเวลา/สาย)
     const { rows: [st] } = await pool.query(
       `SELECT
          COUNT(*) FILTER (WHERE status='Present')::int AS ontime_count,
@@ -2297,18 +2435,14 @@ router.get('/student/classroom/:id/attendance-score', requireRole('student'), as
     const ontime = st?.ontime_count || 0;
     const late   = st?.late_count   || 0;
 
-    // 5) กติกา: 3 สาย = ขาด 1  (เอาเงื่อนไข "ขาดรวม ≥ 3 ⇒ ไม่ผ่าน" ออก)
-    const presentRaw = ontime + late;                         // มาเรียน(ดิบ)
-    const absentRaw  = Math.max(0, totalSessions - presentRaw);
-    const latePenalty      = Math.floor(late / 3);            // ✅ 3 สาย = ขาด 1
-    const absentEffective  = absentRaw + latePenalty;         // ขาดหลังคิดโทษ
-    const presentEffective = Math.max(0, totalSessions - absentEffective);
+    // 5) ไม่มีโทษ "3 สาย = ขาด 1"
+    const present = ontime + late;                          // มาเรียนทั้งหมด
+    const absent  = Math.max(0, totalSessions - present);   // ขาด = คาบทั้งหมด - มาเรียน
 
     const percent = totalSessions
-      ? Math.round((presentEffective / totalSessions) * 100)
+      ? Math.round((present / totalSessions) * 100)
       : 0;
 
-    // ✅ ผ่านเมื่อ: เปอร์เซ็นต์ ≥ minPercent (ไม่มีเกณฑ์ "ขาดรวม ≥ 3" แล้ว)
     const isPass = percent >= minPercent;
 
     return res.render('student_attendance_score', {
@@ -2316,16 +2450,11 @@ router.get('/student/classroom/:id/attendance-score', requireRole('student'), as
       totalSessions,
       ontime,
       late,
-      present: presentRaw,
-      absent:  absentEffective,
+      present,
+      absent,
       percent,
       minPercent,
       isPass,
-
-      // (ออปชัน) อธิบายที่มาของ "ขาด"
-      _absent_raw: absentRaw,
-      _late_penalty: latePenalty,
-
       hasAnySession: totalSessions > 0,
 
       showNavbar: true,
