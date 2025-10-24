@@ -285,7 +285,7 @@ router.get('/admin/list/student', requireRole('admin'), async (req, res) => {
   try {
     const result = await pool.query('SELECT * FROM Student ORDER BY StudentId ASC');
     res.render('userlist', {
-      title: 'รายชื่อนักศีกษา',
+      title: 'รายชื่อนักศึกษา',
       users: result.rows,
       role: 'student',
       currentUser: req.session.user,
